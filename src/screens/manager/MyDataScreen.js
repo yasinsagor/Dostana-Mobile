@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Modal, TextInput,
+  Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../hooks/useAuth';
@@ -39,6 +40,8 @@ function trendArrow(p) {
   if (p<0)  return { arrow:`↓${Math.abs(p)}%`, color:COLORS.danger };
   return { arrow:'=', color:'#aaa' };
 }
+const DELIVERY_KEYS = ['wolt','glovo','uber_eats','bolt','pyszne'];
+const DELIVERY_LABELS = { wolt:'Wolt', glovo:'Glovo', uber_eats:'Uber', bolt:'Bolt', pyszne:'Pyszne' };
 
 /* ─── mini components ───────────────────────────────────────── */
 function StatCard({ label, value, sub, color=COLORS.primary, bg='#E8F5E9' }) {
@@ -80,7 +83,7 @@ function InnerTab({ label, active, onPress }) {
 const it=StyleSheet.create({
   tab:{flex:1,paddingVertical:10,alignItems:'center',borderBottomWidth:2,borderBottomColor:'transparent'},
   active:{borderBottomColor:COLORS.primary},
-  txt:{fontSize:13,color:'#aaa',fontWeight:'600'},
+  txt:{fontSize:12,color:'#aaa',fontWeight:'600'},
 });
 
 /* ════════════════════════════════════════════════════════════ */
@@ -96,6 +99,10 @@ export default function ManagerMyDataScreen() {
   const [spec,   setSpec]   = useState([]);
   const [drLast, setDrLast] = useState([]);
   const [allDr,  setAllDr]  = useState([]);
+
+  // Edit/delete modal
+  const [editModal, setEditModal] = useState(null); // {type:'dr'|'cf', record, fields}
+  const [saving, setSaving] = useState(false);
 
   const { from, to } = monthRange();
   const { from:lfrom, to:lto } = lastMonthRange();
@@ -117,6 +124,72 @@ export default function ManagerMyDataScreen() {
 
   useEffect(()=>{ load(); },[load]);
 
+  /* ── edit / delete ── */
+  function openEditDR(record) {
+    setEditModal({
+      type: 'dr',
+      record,
+      fields: {
+        total_revenue: String(record.total_revenue || record.revenue || 0),
+        total_hours:   String(record.total_hours || record.hours || 0),
+        wolt:      String(record.wolt || 0),
+        glovo:     String(record.glovo || 0),
+        uber_eats: String(record.uber_eats || 0),
+        bolt:      String(record.bolt || 0),
+        pyszne:    String(record.pyszne || 0),
+      },
+    });
+  }
+
+  function openEditCF(record) {
+    const exps = Array.isArray(record.expenses) ? record.expenses : [];
+    const fields = { total_expenses: String(record.total_expenses || 0) };
+    exps.forEach(e => { fields[`exp_${e.name}`] = String(e.amount || 0); });
+    setEditModal({ type: 'cf', record, fields, expenses: exps });
+  }
+
+  async function saveEdit() {
+    if (!editModal) return;
+    setSaving(true);
+    try {
+      const { type, record, fields, expenses } = editModal;
+      if (type === 'dr') {
+        const updates = {};
+        Object.entries(fields).forEach(([k,v]) => { updates[k] = parseFloat(v)||0; });
+        // sync legacy revenue/hours fields too
+        updates.revenue = updates.total_revenue;
+        updates.hours   = updates.total_hours;
+        await supabase.from('daily_reports').update(updates).eq('id', record.id);
+      } else {
+        const updatedExps = (expenses||[]).map(e => ({
+          ...e,
+          amount: parseFloat(fields[`exp_${e.name}`])||0,
+        }));
+        const totalExp = parseFloat(fields.total_expenses)||0;
+        await supabase.from('cashflow_reports').update({
+          total_expenses: totalExp,
+          expenses: updatedExps,
+        }).eq('id', record.id);
+      }
+    } catch(e) { Alert.alert('Error', e.message); }
+    setSaving(false);
+    setEditModal(null);
+    load();
+  }
+
+  function confirmDelete(type, id) {
+    const table = type==='dr' ? 'daily_reports' : 'cashflow_reports';
+    const label = type==='dr' ? 'daily report' : 'cash flow record';
+    Alert.alert(`Delete ${label}?`, 'This cannot be undone.', [
+      { text:'Cancel', style:'cancel' },
+      { text:'Delete', style:'destructive', onPress: async () => {
+          try { await supabase.from(table).delete().eq('id', id); }
+          catch(e) { Alert.alert('Error', e.message); return; }
+          load();
+        }},
+    ]);
+  }
+
   /* ── derived ── */
   const rev        = dr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
   const revLast    = drLast.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
@@ -128,10 +201,9 @@ export default function ManagerMyDataScreen() {
   const bestDay    = dr.reduce((best,r)=>{
     const v=r.total_revenue||r.revenue||0; return v>(best?.val||0)?{val:v,date:r.date}:best;
   }, null);
-  const deliveryRev = dr.reduce((s,r)=>s+(['wolt','glovo','uber_eats','bolt','pyszne'].reduce((d,k)=>d+(r[k]||0),0)),0);
+  const deliveryRev = dr.reduce((s,r)=>s+DELIVERY_KEYS.reduce((d,k)=>d+(r[k]||0),0),0);
   const delivPct    = rev>0 ? Math.round(deliveryRev/rev*100) : 0;
 
-  // SPEC chicken/lamb
   let chickenKg=0, lambKg=0, specCost=0;
   spec.forEach(o => {
     extractItems(o.items).forEach(it => {
@@ -146,14 +218,12 @@ export default function ManagerMyDataScreen() {
   });
   const foodCostPct = rev>0 && specCost>0 ? (specCost/rev*100).toFixed(1) : null;
 
-  // CF expenses "Inne" %
   const inneTotal = cf.reduce((s,r)=>{
     const exps = Array.isArray(r.expenses)?r.expenses:[];
     return s+exps.filter(e=>e.name==='Inne').reduce((x,e)=>x+parseFloat(e.amount||0),0);
   },0);
   const innePct = totalCF>0 ? Math.round(inneTotal/totalCF*100) : 0;
 
-  // Warnings
   const warnings = [];
   if (delivPct>40) warnings.push({ icon:'🚚', txt:`High delivery: ${delivPct}% of revenue (target <40%)` });
   if (totalCF>0 && totalCF/rev>0.5) warnings.push({ icon:'💸', txt:`CF expenses ${Math.round(totalCF/rev*100)}% of revenue — check costs` });
@@ -161,19 +231,15 @@ export default function ManagerMyDataScreen() {
   if (foodCostPct && parseFloat(foodCostPct)>15) warnings.push({ icon:'📦', txt:`Food cost ${foodCostPct}% — reduce SPEC ordering` });
   if (dr.length < new Date().getDate()-3) warnings.push({ icon:'📋', txt:`Only ${dr.length} reports this month — improve consistency` });
 
-  // Ranking
   const branchRevMap = {};
   allDr.forEach(r => { const b=r.branch||''; branchRevMap[b]=(branchRevMap[b]||0)+(r.total_revenue||r.revenue||0); });
   const sorted = Object.entries(branchRevMap).sort((a,b)=>b[1]-a[1]);
   const myRank = sorted.findIndex(([b])=>b===branch)+1 || '?';
   const chainAvg = sorted.length>0 ? Math.round(sorted.reduce((s,[,v])=>s+v,0)/sorted.length) : 0;
-  const topBranch = sorted[0];
 
-  // Monthly target (last month + 5%)
   const target = revLast>0 ? Math.round(revLast*1.05) : null;
   const targetPct = target && rev>0 ? Math.min(100,Math.round(rev/target*100)) : null;
 
-  // Hours bar (last 7 days)
   const last7Hours = Array.from({length:7},(_,i)=>{
     const d=new Date(); d.setDate(d.getDate()-6+i);
     const iso=d.toISOString().slice(0,10);
@@ -206,7 +272,7 @@ export default function ManagerMyDataScreen() {
 
       {/* Inner tabs */}
       <View style={s.tabBar}>
-        {['Reports','Rank','Staff'].map(t=>(
+        {['Reports','Records','Rank','Staff'].map(t=>(
           <InnerTab key={t} label={t} active={tab===t} onPress={()=>setTab(t)}/>
         ))}
       </View>
@@ -219,7 +285,6 @@ export default function ManagerMyDataScreen() {
         {/* ══ REPORTS TAB ══════════════════════════════════════ */}
         {tab==='Reports'&&(<>
 
-          {/* Summary */}
           <SectionCard title="This Month Summary" color={COLORS.primary}>
             <View style={{flexDirection:'row'}}>
               <StatCard label="Revenue"   value={`${fmtK(rev)} PLN`}       color={COLORS.primary} bg="#E8F5E9"/>
@@ -243,7 +308,6 @@ export default function ManagerMyDataScreen() {
             )}
           </SectionCard>
 
-          {/* Warnings */}
           {warnings.length>0&&(
             <SectionCard title="⚠️ Warnings" color={COLORS.danger}>
               {warnings.map((w,i)=>(
@@ -255,7 +319,6 @@ export default function ManagerMyDataScreen() {
             </SectionCard>
           )}
 
-          {/* SPEC Summary */}
           <SectionCard title="📦 SPEC This Month" color="#6A1B9A">
             <View style={{flexDirection:'row'}}>
               <StatCard label="Chicken" value={`${Math.round(chickenKg)}kg`} color="#D32F2F" bg="#FFEBEE"/>
@@ -271,7 +334,6 @@ export default function ManagerMyDataScreen() {
             )}
           </SectionCard>
 
-          {/* Hours efficiency */}
           <SectionCard title="👨‍🍳 Hours Efficiency" color="#1565C0">
             <View style={{flexDirection:'row'}}>
               <StatCard label="Total Hours" value={`${totalHours}h`}          color="#1565C0" bg="#E3F2FD"/>
@@ -290,6 +352,90 @@ export default function ManagerMyDataScreen() {
                 );
               })}
             </View>
+          </SectionCard>
+
+        </>)}
+
+        {/* ══ RECORDS TAB ═════════════════════════════════════ */}
+        {tab==='Records'&&(<>
+
+          {/* Daily Reports */}
+          <SectionCard title={`📋 Daily Reports (${dr.length})`} color={COLORS.primary}>
+            {dr.length===0
+              ? <Text style={s.emptyTxt}>No daily reports this month</Text>
+              : [...dr].sort((a,b)=>b.date.localeCompare(a.date)).map(r=>{
+                  const rv = r.total_revenue||r.revenue||0;
+                  const hrs = r.total_hours||r.hours||0;
+                  const delivTotal = DELIVERY_KEYS.reduce((d,k)=>d+(r[k]||0),0);
+                  const dPct = rv>0?Math.round(delivTotal/rv*100):0;
+                  return (
+                    <View key={r.id||r.date} style={s.recRow}>
+                      <View style={{flex:1}}>
+                        <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
+                          <Text style={s.recDate}>{r.date}</Text>
+                          <Text style={s.recRev}>{fmtK(rv)} PLN</Text>
+                        </View>
+                        <View style={{flexDirection:'row',gap:10,marginTop:3,flexWrap:'wrap'}}>
+                          <Text style={s.recMeta}>⏱ {hrs}h</Text>
+                          {delivTotal>0&&<Text style={s.recMeta}>🛵 {dPct}% delivery</Text>}
+                        </View>
+                        {delivTotal>0&&(
+                          <View style={{flexDirection:'row',flexWrap:'wrap',gap:4,marginTop:5}}>
+                            {DELIVERY_KEYS.map(k=>r[k]>0&&(
+                              <Text key={k} style={s.chip}>{DELIVERY_LABELS[k]}: {fmtK(r[k])}</Text>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      <View style={s.recActions}>
+                        <TouchableOpacity onPress={()=>openEditDR(r)} style={s.editBtn} activeOpacity={0.7}>
+                          <Text style={{fontSize:15}}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={()=>confirmDelete('dr',r.id)} style={s.delBtn} activeOpacity={0.7}>
+                          <Text style={{fontSize:15}}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })
+            }
+          </SectionCard>
+
+          {/* Cash Flow Reports */}
+          <SectionCard title={`💰 Cash Flow Reports (${cf.length})`} color="#D32F2F">
+            {cf.length===0
+              ? <Text style={s.emptyTxt}>No cash flow reports this month</Text>
+              : [...cf].sort((a,b)=>b.date.localeCompare(a.date)).map(r=>{
+                  const exps = Array.isArray(r.expenses)?r.expenses:[];
+                  return (
+                    <View key={r.id||r.date} style={s.recRow}>
+                      <View style={{flex:1}}>
+                        <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
+                          <Text style={s.recDate}>{r.date}</Text>
+                          <Text style={[s.recRev,{color:'#D32F2F'}]}>{fmtK(r.total_expenses||0)} PLN</Text>
+                        </View>
+                        {exps.length>0&&(
+                          <View style={{flexDirection:'row',flexWrap:'wrap',gap:4,marginTop:5}}>
+                            {exps.map((e,i)=>(
+                              <Text key={i} style={[s.chip,{backgroundColor:'#FFEBEE',color:'#C62828'}]}>
+                                {e.name}: {fmtK(e.amount||0)}
+                              </Text>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      <View style={s.recActions}>
+                        <TouchableOpacity onPress={()=>openEditCF(r)} style={s.editBtn} activeOpacity={0.7}>
+                          <Text style={{fontSize:15}}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={()=>confirmDelete('cf',r.id)} style={s.delBtn} activeOpacity={0.7}>
+                          <Text style={{fontSize:15}}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })
+            }
           </SectionCard>
 
         </>)}
@@ -361,7 +507,7 @@ export default function ManagerMyDataScreen() {
           <SectionCard title="📅 Daily Hours This Month" color="#1565C0">
             {dr.length===0
               ? <Text style={s.emptyTxt}>No reports yet this month</Text>
-              : dr.slice(0,14).map(r=>{
+              : [...dr].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,14).map(r=>{
                   const h=r.total_hours||r.hours||0;
                   const v=r.total_revenue||r.revenue||0;
                   return (
@@ -381,6 +527,64 @@ export default function ManagerMyDataScreen() {
         </>)}
 
       </ScrollView>
+
+      {/* ══ EDIT MODAL ════════════════════════════════════════ */}
+      <Modal
+        visible={!!editModal}
+        transparent
+        animationType="slide"
+        onRequestClose={()=>setEditModal(null)}
+      >
+        <KeyboardAvoidingView
+          style={s.modalOverlay}
+          behavior={Platform.OS==='ios'?'padding':'height'}
+        >
+          <View style={s.modalBox}>
+            <Text style={s.modalTitle}>
+              {editModal?.type==='dr' ? '✏️ Edit Daily Report' : '✏️ Edit Cash Flow'}
+            </Text>
+            <Text style={s.modalDate}>{editModal?.record?.date}</Text>
+
+            <ScrollView style={{maxHeight:320}} showsVerticalScrollIndicator={false}>
+              {editModal && Object.entries(editModal.fields).map(([key,val])=>(
+                <View key={key} style={s.fieldRow}>
+                  <Text style={s.fieldLabel}>
+                    {key.replace(/^exp_/,'').replace(/_/g,' ').toUpperCase()}
+                  </Text>
+                  <TextInput
+                    style={s.fieldInput}
+                    value={val}
+                    onChangeText={v=>setEditModal(prev=>({...prev,fields:{...prev.fields,[key]:v}}))}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    selectTextOnFocus
+                  />
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={{flexDirection:'row',gap:10,marginTop:16}}>
+              <TouchableOpacity
+                style={[s.modalBtn,{backgroundColor:'#F0F0F0'}]}
+                onPress={()=>setEditModal(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={{color:'#555',fontWeight:'700',fontSize:14}}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalBtn,{backgroundColor:COLORS.primary,flex:1}]}
+                onPress={saveEdit}
+                disabled={saving}
+                activeOpacity={0.8}
+              >
+                <Text style={{color:'#fff',fontWeight:'800',fontSize:14}}>
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -426,4 +630,22 @@ const s = StyleSheet.create({
   staffHrs:     { fontSize:12, fontWeight:'700', color:'#333', width:28, textAlign:'right' },
   staffRev:     { fontSize:11, color:COLORS.primary, fontWeight:'700', width:45, textAlign:'right' },
   emptyTxt:     { color:'#aaa', fontSize:13, textAlign:'center', padding:16 },
+  // Records tab
+  recRow:       { flexDirection:'row', paddingVertical:10, borderBottomWidth:1, borderBottomColor:'#F5F5F5', gap:8, alignItems:'flex-start' },
+  recDate:      { fontSize:12, fontWeight:'800', color:'#333' },
+  recRev:       { fontSize:13, fontWeight:'900', color:COLORS.primary },
+  recMeta:      { fontSize:11, color:'#888' },
+  chip:         { backgroundColor:'#E8F5E9', color:COLORS.primary, fontSize:10, fontWeight:'700', paddingHorizontal:7, paddingVertical:3, borderRadius:6, overflow:'hidden' },
+  recActions:   { flexDirection:'row', gap:6, alignItems:'flex-start' },
+  editBtn:      { padding:7, backgroundColor:'#E3F2FD', borderRadius:8 },
+  delBtn:       { padding:7, backgroundColor:'#FFEBEE', borderRadius:8 },
+  // Edit modal
+  modalOverlay: { flex:1, backgroundColor:'rgba(0,0,0,0.55)', justifyContent:'flex-end' },
+  modalBox:     { backgroundColor:'#fff', borderTopLeftRadius:22, borderTopRightRadius:22, padding:22, paddingBottom:36 },
+  modalTitle:   { fontSize:16, fontWeight:'900', color:'#222', marginBottom:3 },
+  modalDate:    { fontSize:12, color:'#888', marginBottom:14 },
+  fieldRow:     { flexDirection:'row', alignItems:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:'#F5F5F5' },
+  fieldLabel:   { flex:1, fontSize:11, fontWeight:'700', color:'#555' },
+  fieldInput:   { borderWidth:1, borderColor:'#E0E0E0', borderRadius:8, paddingHorizontal:12, paddingVertical:7, minWidth:110, fontSize:14, textAlign:'right', color:'#222' },
+  modalBtn:     { borderRadius:12, padding:14, alignItems:'center', justifyContent:'center' },
 });
