@@ -13,6 +13,18 @@ function pad(n) { return String(n).padStart(2,'0'); }
 function fmtK(n) { if (!n&&n!==0) return '0'; if (Math.abs(n)>=1000) return (n/1000).toFixed(1)+'k'; return Math.round(n).toString(); }
 function fmtPct(n) { return n.toFixed(1)+'%'; }
 
+// Safe month range — avoids invalid dates like Apr-31
+function monthRange(y, m) {
+  const lastDay = new Date(y, m, 0).getDate(); // last day of month m
+  return { from:`${y}-${pad(m)}-01`, to:`${y}-${pad(m)}-${pad(lastDay)}` };
+}
+function lastMonthRange(y, m) {
+  const lm = m===1 ? 12 : m-1;
+  const ly = m===1 ? y-1 : y;
+  const lastDay = new Date(ly, lm, 0).getDate();
+  return { from:`${ly}-${pad(lm)}-01`, to:`${ly}-${pad(lm)}-${pad(lastDay)}` };
+}
+
 function extractItems(items) {
   if (!items) return {};
   let obj = items;
@@ -20,12 +32,6 @@ function extractItems(items) {
   if (Array.isArray(obj)) return obj.reduce((acc,i) => { const k=i.name||i.productName||i.product||'Item'; acc[k]=(acc[k]||0)+Number(i.qty??i.quantity??i.amount??0); return acc; }, {});
   if (typeof obj === 'object') return {...obj};
   return {};
-}
-
-function monthRange(y, m) { return { from:`${y}-${pad(m)}-01`, to:`${y}-${pad(m)}-31` }; }
-function lastMonthRange(y, m) {
-  const d = new Date(y, m-2, 1);
-  return { from:`${d.getFullYear()}-${pad(d.getMonth()+1)}-01`, to:`${d.getFullYear()}-${pad(d.getMonth()+1)}-31` };
 }
 
 export default function OwnerPerformanceScreen() {
@@ -66,7 +72,7 @@ export default function OwnerPerformanceScreen() {
   useEffect(() => { setLoading(true); load(); }, [load]);
 
   const isCurrentMonth = now.getMonth()+1===selM && now.getFullYear()===selY;
-  const daysElapsed = isCurrentMonth ? now.getDate() : 31;
+  const daysElapsed = isCurrentMonth ? now.getDate() : new Date(selY, selM, 0).getDate();
 
   const branchStats = BRANCHES.map(b => {
     const bR = reports.filter(r => r.branch===b.name);
@@ -178,7 +184,6 @@ export default function OwnerPerformanceScreen() {
           const scoreColor = b.score>=75?COLORS.primary:b.score>=50?COLORS.warning:COLORS.danger;
           const specStatus = b.specPct===0?null:b.specPct<=10?{c:'#2E7D32',lbl:'Good'}:b.specPct<=15?{c:COLORS.warning,lbl:'High'}:{c:COLORS.danger,lbl:'Too High'};
           const rphVsAvg = avgRPH>0&&b.rph>0 ? (b.rph-avgRPH)/avgRPH*100 : null;
-          const margin = b.revenue>0 ? b.estProfit/b.revenue*100 : null;
 
           return (
             <View key={b.name} style={s.card}>
@@ -200,7 +205,6 @@ export default function OwnerPerformanceScreen() {
 
               {isExp&&(
                 <View style={s.detail}>
-                  {/* Revenue */}
                   <Text style={s.secLbl}>💰 Revenue</Text>
                   <View style={s.grid4}>
                     <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.revenue)}</Text><Text style={s.statLbl}>This Month</Text></View>
@@ -212,7 +216,6 @@ export default function OwnerPerformanceScreen() {
                     <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.lastRev)}</Text><Text style={s.statLbl}>Last Month</Text></View>
                   </View>
 
-                  {/* SPEC */}
                   <Text style={s.secLbl}>📦 SPEC Usage</Text>
                   <View style={s.grid4}>
                     <View style={s.statBox}><Text style={s.statVal}>{b.chickenQty>0?b.chickenQty+'kg':'—'}</Text><Text style={s.statLbl}>Chicken</Text></View>
@@ -224,7 +227,6 @@ export default function OwnerPerformanceScreen() {
                     </View>
                   </View>
 
-                  {/* Labor */}
                   <Text style={s.secLbl}>👨‍🍳 Labor Efficiency</Text>
                   <View style={s.grid4}>
                     <View style={s.statBox}><Text style={s.statVal}>{b.hours>0?b.hours+'h':'—'}</Text><Text style={s.statLbl}>Total Hours</Text></View>
@@ -236,7 +238,6 @@ export default function OwnerPerformanceScreen() {
                     <View style={s.statBox}><Text style={s.statVal}>{avgRPH>0?Math.round(avgRPH)+' PLN':'—'}</Text><Text style={s.statLbl}>Chain Avg</Text></View>
                   </View>
 
-                  {/* Delivery */}
                   <Text style={s.secLbl}>🚚 Delivery</Text>
                   <View style={s.grid4}>
                     <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.delivery)}</Text><Text style={s.statLbl}>Delivery Rev</Text></View>
@@ -245,7 +246,6 @@ export default function OwnerPerformanceScreen() {
                     <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.cfExpenses)}</Text><Text style={s.statLbl}>CF Expenses</Text></View>
                   </View>
 
-                  {/* Estimated Profit */}
                   <Text style={s.secLbl}>💵 Estimated Profit</Text>
                   <View style={[s.profitBox,{borderColor:b.estProfit>=0?COLORS.primary:COLORS.danger}]}>
                     <View style={s.profitRow}><Text style={s.profitLbl}>Revenue</Text><Text style={s.profitVal}>+{fmtK(b.revenue)} PLN</Text></View>
@@ -257,14 +257,12 @@ export default function OwnerPerformanceScreen() {
                     </View>
                   </View>
 
-                  {/* Warnings */}
                   {b.warnings.length>0&&(
                     <View style={s.warnBox}>
                       {b.warnings.map((w,i)=><Text key={i} style={s.warnTxt}>⚠️ {w}</Text>)}
                     </View>
                   )}
 
-                  {/* Trend */}
                   {b.revGrowth!==null&&(
                     <View style={[s.trendBadge,{backgroundColor:b.revGrowth>=0?'#E8F5E9':'#FFEBEE'}]}>
                       <Text style={[s.trendTxt,{color:b.revGrowth>=0?COLORS.primary:COLORS.danger}]}>
