@@ -27,6 +27,65 @@ function fallbackPrice(p) {
   return 10;
 }
 
+
+/* ─── fallback products (used when spec_products table is empty) ── */
+const FALLBACK_PRODUCTS = [
+  // Mięso
+  { id:'f1',  name:'Kurczak',              unit:'kg',      category:'Mięso',     price:25 },
+  { id:'f2',  name:'Baranina',             unit:'kg',      category:'Mięso',     price:50 },
+  { id:'f3',  name:'Pita 55',              unit:'pckt',    category:'Mięso',     price:20 },
+  { id:'f4',  name:'Pita 65',              unit:'pckt',    category:'Mięso',     price:22 },
+  { id:'f5',  name:'Pita 110',             unit:'pckt',    category:'Mięso',     price:28 },
+  { id:'f6',  name:'Pita 85',              unit:'pckt',    category:'Mięso',     price:24 },
+  { id:'f7',  name:'Tortilla 30cm',        unit:'opak',    category:'Mięso',     price:18 },
+  { id:'f8',  name:'Tortilla 35cm',        unit:'opak',    category:'Mięso',     price:20 },
+  { id:'f9',  name:'Lawasz',               unit:'opak',    category:'Mięso',     price:15 },
+  { id:'f10', name:'Bułka',                unit:'szt',     category:'Mięso',     price:3  },
+  { id:'f11', name:'Frytki',               unit:'karton',  category:'Mięso',     price:45 },
+  { id:'f12', name:'Cebula',               unit:'szt',     category:'Mięso',     price:5  },
+  { id:'f13', name:'Nuggetsy',             unit:'szt',     category:'Mięso',     price:30 },
+  { id:'f14', name:'Falafel',              unit:'szt',     category:'Mięso',     price:25 },
+  // Sosy
+  { id:'f15', name:'Sos musztardowo-miodowy', unit:'szt', category:'Sosy',      price:12 },
+  { id:'f16', name:'Sos paprykowy ostry',  unit:'szt',    category:'Sosy',      price:12 },
+  { id:'f17', name:'Sos jalapeño',         unit:'szt',    category:'Sosy',      price:12 },
+  { id:'f18', name:'Sos serowy',           unit:'szt',    category:'Sosy',      price:12 },
+  { id:'f19', name:'Ketchup 10kg',         unit:'szt',    category:'Sosy',      price:60 },
+  { id:'f20', name:'Majonez 10kg',         unit:'szt',    category:'Sosy',      price:65 },
+  { id:'f21', name:'Jogurt 10kg',          unit:'szt',    category:'Sosy',      price:40 },
+  { id:'f22', name:'Ayran',                unit:'szt',    category:'Sosy',      price:8  },
+  { id:'f23', name:'Ostry Sambal 10kg',    unit:'szt',    category:'Sosy',      price:70 },
+  { id:'f24', name:'Mango (sos)',          unit:'szt',    category:'Sosy',      price:15 },
+  // Oleje
+  { id:'f25', name:'Olej do frutury',      unit:'szt',    category:'Oleje',     price:25 },
+  { id:'f26', name:'Olej do kapusty 5kg',  unit:'szt',    category:'Oleje',     price:30 },
+  { id:'f27', name:'Oliwa z oliwek',       unit:'L',      category:'Oleje',     price:20 },
+  { id:'f28', name:'Cynamon',              unit:'szt',     category:'Oleje',     price:8  },
+  { id:'f29', name:'Ocet',                 unit:'szt',    category:'Oleje',     price:5  },
+  { id:'f30', name:'Sól',                  unit:'kg',     category:'Oleje',     price:3  },
+  { id:'f31', name:'Folia aluminiowa',     unit:'box',    category:'Oleje',     price:15 },
+  { id:'f32', name:'Domestos 5L',          unit:'szt',    category:'Oleje',     price:18 },
+  { id:'f33', name:'Frytura oil',          unit:'pis',    category:'Oleje',     price:35 },
+  { id:'f34', name:'Woda niegazowana',     unit:'pak',    category:'Oleje',     price:12 },
+  { id:'f35', name:'Ocet winny',           unit:'butelek',category:'Oleje',     price:8  },
+  // Opakowania
+  { id:'f36', name:'Box obiadowy 750ml',   unit:'szt',    category:'Opakowania',price:15 },
+  { id:'f37', name:'Koperta kebab',        unit:'szt',    category:'Opakowania',price:10 },
+  { id:'f38', name:'Kubek plastikowy 200ml',unit:'szt',  category:'Opakowania',price:8  },
+  { id:'f39', name:'Serwetka 15×15',       unit:'opak',   category:'Opakowania',price:5  },
+  { id:'f40', name:'Serwetka 15×15 biała', unit:'opak',  category:'Opakowania',price:5  },
+  { id:'f41', name:'Reklamówka 5kg',       unit:'szt',    category:'Opakowania',price:4  },
+  { id:'f42', name:'Reklamówka 10kg',      unit:'szt',    category:'Opakowania',price:6  },
+  { id:'f43', name:'Worki sanitarne 240L', unit:'szt',    category:'Opakowania',price:12 },
+  { id:'f44', name:'Rękawiczki nitrylowe XL',unit:'opak',category:'Opakowania',price:15 },
+  { id:'f45', name:'Rękawiczki nitrylowe L', unit:'opak',category:'Opakowania',price:15 },
+  { id:'f46', name:'Ręcznik papierowy maxi', unit:'szt', category:'Opakowania',price:8  },
+  { id:'f47', name:'Ściereczka mikrofibra', unit:'szt',  category:'Opakowania',price:5  },
+  { id:'f48', name:'Rolka kasa 80×30 termiczna',unit:'szt',category:'Opakowania',price:10},
+  { id:'f49', name:'Rolka kasa 57×20 termiczna',unit:'szt',category:'Opakowania',price:10},
+  { id:'f50', name:'Kebab box 750ml',      unit:'szt',    category:'Opakowania',price:15 },
+];
+
 /* ─── category tab ────────────────────────────────────────── */
 function CatTab({ label, active, onPress, badge }) {
   return (
@@ -152,7 +211,7 @@ export default function ManagerSpecScreen() {
       try {
         // products
         const prods = await fetchSpecProducts();
-        setProducts(prods || []);
+        setProducts(prods && prods.length > 0 ? prods : FALLBACK_PRODUCTS);
 
         // check if already submitted today
         const { data:todaySpec } = await supabase
@@ -188,7 +247,7 @@ export default function ManagerSpecScreen() {
           let items = o.items;
           if (typeof items==='string') { try { items=JSON.parse(items); } catch { items=[]; } }
           if (!Array.isArray(items)) items = [];
-          const prodMap = Object.fromEntries((prods||[]).map(p=>[p.name, p]));
+          const prodMap = Object.fromEntries((prods && prods.length > 0 ? prods : FALLBACK_PRODUCTS).map(p=>[p.name, p]));
           items.forEach(it => {
             const prod = prodMap[it.name];
             spCost += n(it.qty) * (prod?.price || fallbackPrice(prod || { name:it.name, unit:it.unit }));
