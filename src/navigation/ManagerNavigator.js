@@ -3,20 +3,22 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 import { COLORS } from '../constants';
 
-import ManagerDailyScreen from '../screens/manager/DailyScreen';
-import ManagerSpecScreen from '../screens/manager/SpecScreen';
+import ManagerHomeScreen     from '../screens/manager/HomeScreen';
+import ManagerDailyScreen    from '../screens/manager/DailyScreen';
+import ManagerSpecScreen     from '../screens/manager/SpecScreen';
 import ManagerCashflowScreen from '../screens/manager/CashflowScreen';
-import ManagerHistoryScreen from '../screens/manager/HistoryScreen';
+import ManagerHistoryScreen  from '../screens/manager/HistoryScreen';
 import ManagerSettingsScreen from '../screens/manager/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 
 const tabs = [
-  { name: 'Daily Report', component: ManagerDailyScreen, icon: '📝' },
-  { name: 'SPEC Order', component: ManagerSpecScreen, icon: '📦' },
-  { name: 'Cash Flow', component: ManagerCashflowScreen, icon: '💰' },
-  { name: 'History', component: ManagerHistoryScreen, icon: '🗂️' },
-  { name: 'Settings', component: ManagerSettingsScreen, icon: '⚙️' },
+  { name: 'Home',         component: ManagerHomeScreen,     icon: '🏠' },
+  { name: 'Daily Report', component: ManagerDailyScreen,    icon: '📝' },
+  { name: 'SPEC Order',   component: ManagerSpecScreen,     icon: '📦' },
+  { name: 'Cash Flow',    component: ManagerCashflowScreen, icon: '💰' },
+  { name: 'History',      component: ManagerHistoryScreen,  icon: '🗂️' },
+  { name: 'Settings',     component: ManagerSettingsScreen, icon: '⚙️' },
 ];
 
 export default function ManagerNavigator() {
@@ -27,9 +29,10 @@ export default function ManagerNavigator() {
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textSecondary,
         tabBarStyle: { paddingBottom: 4, height: 60 },
+        tabBarLabelStyle: { fontSize: 10 },
         tabBarIcon: ({ focused }) => {
           const tab = tabs.find(t => t.name === route.name);
-          return <Text style={{ fontSize: focused ? 22 : 18 }}>{tab?.icon}</Text>;
+          return <Text style={{ fontSize: focused ? 20 : 16 }}>{tab?.icon}</Text>;
         },
       })}
     >
