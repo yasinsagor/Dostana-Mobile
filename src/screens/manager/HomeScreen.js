@@ -272,7 +272,7 @@ export default function ManagerHomeScreen() {
               <Text style={s.alertTxt}>⚠️ No hours logged — add hours in Daily Report</Text>
             </View>
           )}
-          <TouchableOpacity style={s.shiftBtn} onPress={() => navigation.navigate('Daily Report')} activeOpacity={0.8}>
+          <TouchableOpacity style={s.shiftBtn} onPress={() => navigation.navigate('Submit')} activeOpacity={0.8}>
             <Text style={s.shiftBtnTxt}>📝 Log Hours in Daily Report →</Text>
           </TouchableOpacity>
         </Card>
@@ -359,8 +359,8 @@ export default function ManagerHomeScreen() {
         <Card>
           <Text style={s.cardTitle}>⚡ Quick Actions</Text>
           <View style={{flexDirection:'row',flexWrap:'wrap',marginTop:4}}>
-            <QBtn icon="📝" label="Daily Report"  onPress={()=>navigation.navigate('Daily Report')}  color={COLORS.primary}/>
-            <QBtn icon="💸" label="Cash Flow"     onPress={()=>navigation.navigate('Cash Flow')}     color="#1565C0"/>
+            <QBtn icon="📝" label="Daily Report"  onPress={()=>navigation.navigate('Submit')}  color={COLORS.primary}/>
+            <QBtn icon="💸" label="Cash Flow"     onPress={()=>navigation.navigate('Submit')}     color="#1565C0"/>
             <QBtn icon="📦" label="SPEC Order"    onPress={()=>navigation.navigate('SPEC Order')}    color="#6A1B9A"/>
             <QBtn icon="🗂️" label="History"       onPress={()=>navigation.navigate('History')}       color="#E65100"/>
           </View>
