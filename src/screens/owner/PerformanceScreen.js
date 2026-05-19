@@ -4,250 +4,361 @@ import {
   RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { fetchAllDailyReports } from '../../lib/supabase';
+import { supabase, fetchAllDailyReports } from '../../lib/supabase';
 import { COLORS, BRANCHES } from '../../constants';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 function pad(n) { return String(n).padStart(2,'0'); }
-function fmt(n) { if (!n) return '0'; if (Math.abs(n) >= 1000) return (n/1000).toFixed(1)+'k'; return Math.round(n).toString(); }
+function fmtK(n) { if (!n&&n!==0) return '0'; if (Math.abs(n)>=1000) return (n/1000).toFixed(1)+'k'; return Math.round(n).toString(); }
+function fmtPct(n) { return n.toFixed(1)+'%'; }
+
+function extractItems(items) {
+  if (!items) return {};
+  let obj = items;
+  if (typeof items === 'string') { try { obj = JSON.parse(items); } catch { return {}; } }
+  if (Array.isArray(obj)) return obj.reduce((acc,i) => { const k=i.name||i.productName||i.product||'Item'; acc[k]=(acc[k]||0)+Number(i.qty??i.quantity??i.amount??0); return acc; }, {});
+  if (typeof obj === 'object') return {...obj};
+  return {};
+}
+
+function monthRange(y, m) { return { from:`${y}-${pad(m)}-01`, to:`${y}-${pad(m)}-31` }; }
+function lastMonthRange(y, m) {
+  const d = new Date(y, m-2, 1);
+  return { from:`${d.getFullYear()}-${pad(d.getMonth()+1)}-01`, to:`${d.getFullYear()}-${pad(d.getMonth()+1)}-31` };
+}
 
 export default function OwnerPerformanceScreen() {
   const now = new Date();
-  const [selM, setSelM] = useState(now.getMonth() + 1);
+  const [selM, setSelM] = useState(now.getMonth()+1);
   const [selY, setSelY] = useState(now.getFullYear());
-  const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [reports, setReports] = useState([]);
+  const [todayReports, setTodayReports] = useState([]);
+  const [cfReports, setCfReports] = useState([]);
+  const [specOrders, setSpecOrders] = useState([]);
+  const [lastReports, setLastReports] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const [showTable, setShowTable] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const from = selY+'-'+pad(selM)+'-01';
-      const to = selY+'-'+pad(selM)+'-31';
-      const data = await fetchAllDailyReports(from, to);
-      setReports(data || []);
-    } catch(e) {}
+      const { from, to } = monthRange(selY, selM);
+      const lm = lastMonthRange(selY, selM);
+      const today = new Date().toISOString().slice(0,10);
+      const [daily, cfRes, spRes, lastDaily, todayData] = await Promise.all([
+        fetchAllDailyReports(from, to),
+        supabase.from('cashflow_reports').select('*').gte('date',from).lte('date',to),
+        supabase.from('spec_orders').select('*').gte('date',from).lte('date',to),
+        fetchAllDailyReports(lm.from, lm.to),
+        fetchAllDailyReports(today, today),
+      ]);
+      setReports(daily||[]);
+      setCfReports(cfRes.data||[]);
+      setSpecOrders(spRes.data||[]);
+      setLastReports(lastDaily||[]);
+      setTodayReports(todayData||[]);
+    } catch(e) { console.error(e); }
     finally { setLoading(false); setRefreshing(false); }
   }, [selM, selY]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
 
-  // Aggregate per branch
-  const branchData = {};
-  BRANCHES.forEach(b => {
-    branchData[b.name] = { revenue:0, card:0, cash:0, delivery:0, expenses:0, netProfit:0, warzywa:0, cola:0, gaz:0, spec:0, hours:0, reports:0 };
-  });
-  reports.forEach(r => {
-    const b = branchData[r.branch];
-    if (!b) return;
-    b.revenue += (r.total_revenue || r.revenue || 0);
-    b.card += (r.card || r.karta || 0);
-    b.cash += (r.cash || r.gotowka || 0);
-    b.delivery += (r.total_delivery || 0);
-    b.expenses += (r.total_expenses || 0);
-    b.netProfit += (r.net_profit || 0);
-    b.hours += (r.hours || 0);
-    b.reports++;
-    const exp = r.wydatki ? (typeof r.wydatki === 'string' ? JSON.parse(r.wydatki) : r.wydatki) : [];
-    exp.forEach(e => {
-      const nm = (e.name||e.kategoria||'').toLowerCase();
-      const val = parseFloat(e.amount||e.kwota||0);
-      if (/warz|salad|vegeta/i.test(nm)) b.warzywa += val;
-      else if (/cola|pepsi|napoj/i.test(nm)) b.cola += val;
-      else if (/gaz|gas/i.test(nm)) b.gaz += val;
-      else if (/spec/i.test(nm)) b.spec += val;
+  const isCurrentMonth = now.getMonth()+1===selM && now.getFullYear()===selY;
+  const daysElapsed = isCurrentMonth ? now.getDate() : 31;
+
+  const branchStats = BRANCHES.map(b => {
+    const bR = reports.filter(r => r.branch===b.name);
+    const todayR = todayReports.find(r => r.branch===b.name);
+    const bCF = cfReports.filter(r => r.branch===b.name);
+    const bSpec = specOrders.filter(r => r.branch===b.name);
+    const bLast = lastReports.filter(r => r.branch===b.name);
+
+    const revenue = bR.reduce((s,r) => s+(r.total_revenue||r.revenue||0), 0);
+    const todayRev = todayR ? (todayR.total_revenue||todayR.revenue||0) : 0;
+    const lastRev = bLast.reduce((s,r) => s+(r.total_revenue||r.revenue||0), 0);
+    const revGrowth = lastRev>0 ? (revenue-lastRev)/lastRev*100 : null;
+    const cfExpenses = bCF.reduce((s,r) => s+(r.total_expenses||r.total||0), 0);
+    const netProfit = bR.reduce((s,r) => s+(r.net_profit||0), 0);
+    const hours = bR.reduce((s,r) => s+(r.hours||0), 0);
+    const rph = hours>0 ? revenue/hours : 0;
+    const delivery = bR.reduce((s,r) => s+(r.total_delivery||0), 0);
+    const deliveryPct = revenue>0 ? delivery/revenue*100 : 0;
+
+    let specCost=0, chickenQty=0, lambQty=0;
+    bSpec.forEach(order => {
+      specCost += order.total_cost||order.total||0;
+      const items = extractItems(order.items);
+      Object.entries(items).forEach(([k,v]) => {
+        if (/kurczak|chicken/i.test(k)) chickenQty += Number(v)||0;
+        if (/baranina|lamb/i.test(k)) lambQty += Number(v)||0;
+      });
     });
+    const specPct = revenue>0 ? specCost/revenue*100 : 0;
+    const reportCount = bR.length;
+    const missingReports = Math.max(0, daysElapsed - reportCount);
+
+    const warnings = [];
+    if (missingReports > 2) warnings.push(`${missingReports} missing reports this month`);
+    if (specPct > 12) warnings.push(`SPEC cost ${fmtPct(specPct)} — above 12% threshold`);
+    if (hours===0 && reportCount>0) warnings.push('No hours logged — labor data missing');
+    if (netProfit<0) warnings.push('Negative profit this month');
+    if (cfExpenses===0 && reportCount>0) warnings.push('No cash flow records submitted');
+
+    return { name:b.name, revenue, todayRev, lastRev, revGrowth, cfExpenses, netProfit, estProfit:revenue-cfExpenses-specCost, hours, rph, delivery, deliveryPct, specCost, specPct, chickenQty, lambQty, reportCount, missingReports, warnings, score:0 };
   });
 
-  const branches = BRANCHES.map(b => b.name).filter(br => branchData[br].reports > 0);
-  const n = branches.length || 1;
-  const avgRev = branches.reduce((s,b) => s + branchData[b].revenue, 0) / n;
-  const avgDel = branches.reduce((s,b) => s + (branchData[b].revenue > 0 ? branchData[b].delivery/branchData[b].revenue*100 : 0), 0) / n;
-  const avgWarz = branches.reduce((s,b) => s + (branchData[b].revenue > 0 ? branchData[b].warzywa/branchData[b].revenue*100 : 0), 0) / n;
-  const avgRPH = branches.reduce((s,b) => s + (branchData[b].hours > 0 ? branchData[b].revenue/branchData[b].hours : 0), 0) / n;
+  const active = branchStats.filter(b => b.reportCount>0);
+  const n = active.length||1;
+  const avgRev = active.reduce((s,b) => s+b.revenue,0)/n;
+  const avgRPH = active.reduce((s,b) => s+b.rph,0)/n;
 
-  const scored = BRANCHES.map(b => {
-    const d = branchData[b.name];
-    let score = 0;
-    if (d.revenue >= avgRev) score += 30; else score += Math.round(d.revenue/avgRev*30);
-    const delPct = d.revenue > 0 ? d.delivery/d.revenue*100 : 0;
-    if (delPct >= avgDel) score += 25; else score += Math.round(delPct/Math.max(avgDel,1)*25);
-    const rph = d.hours > 0 ? d.revenue/d.hours : 0;
-    if (rph >= avgRPH*0.9) score += 25; else if (rph > 0) score += Math.round(rph/avgRPH*25);
-    const wPct = d.revenue > 0 ? d.warzywa/d.revenue*100 : 0;
-    if (wPct > 0 && wPct <= avgWarz*1.1) score += 20; else if (wPct === 0) score += 15;
-    return { br: b.name, d, score: Math.min(100, score), delPct, rph, wPct };
-  }).filter(x => x.d.reports > 0).sort((a,b) => b.score - a.score);
+  branchStats.forEach(b => {
+    let sc=0;
+    if (avgRev>0) sc+=Math.min(30,Math.round(b.revenue/avgRev*30));
+    if (avgRPH>0&&b.rph>0) sc+=Math.min(25,Math.round(b.rph/avgRPH*25));
+    else if (b.reportCount>0&&b.hours>0) sc+=10;
+    if (b.specPct===0) sc+=15; else if (b.specPct<=10) sc+=20; else if (b.specPct<=15) sc+=10;
+    const repRate = daysElapsed>0 ? b.reportCount/daysElapsed : 0;
+    sc+=Math.round(repRate*15);
+    const expR = b.revenue>0 ? b.cfExpenses/b.revenue : 0;
+    if (expR<=0.3) sc+=10; else if (expR<=0.5) sc+=5;
+    b.score=Math.min(100,sc);
+  });
 
-  const totalRev = branches.reduce((s,b) => s + branchData[b].revenue, 0);
-  const medals = ['🥇','🥈','🥉'];
-
-  const years = [now.getFullYear(), now.getFullYear()-1];
+  const sorted = [...branchStats].filter(b=>b.reportCount>0).sort((a,b)=>b.score-a.score);
+  const totalRev = active.reduce((s,b)=>s+b.revenue,0);
+  const medals=['🥇','🥈','🥉'];
+  const toggle = name => setExpanded(p => p===name ? null : name);
 
   if (loading) return (
     <SafeAreaView style={s.safe}>
-      <View style={s.header}><Text style={s.title}>📊 Performance</Text></View>
-      <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>
+      <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary}/></View>
     </SafeAreaView>
   );
 
   return (
     <SafeAreaView style={s.safe}>
-      <View style={s.header}><Text style={s.title}>📊 Performance</Text></View>
       <ScrollView
-        style={s.scroll} contentContainerStyle={s.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} colors={[COLORS.primary]} />}
+        contentContainerStyle={s.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);load();}} colors={[COLORS.primary]}/>}
       >
-        {/* Month/Year selector */}
-        <View style={s.selRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {MONTHS.map((m,i) => (
-              <TouchableOpacity key={m} onPress={() => setSelM(i+1)} style={[s.pill, selM===i+1 && s.pillActive]}>
-                <Text style={[s.pillTxt, selM===i+1 && s.pillTxtActive]}>{m.slice(0,3)}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-        <View style={s.selRow}>
-          {years.map(y => (
-            <TouchableOpacity key={y} onPress={() => setSelY(y)} style={[s.pill, selY===y && s.pillActive]}>
-              <Text style={[s.pillTxt, selY===y && s.pillTxtActive]}>{y}</Text>
+        <Text style={s.pageTitle}>Performance</Text>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>
+          {MONTHS.map((m,i) => (
+            <TouchableOpacity key={m} onPress={()=>setSelM(i+1)} style={[s.pill, selM===i+1&&s.pillOn]}>
+              <Text style={[s.pillTxt, selM===i+1&&s.pillTxtOn]}>{m.slice(0,3)}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+        <View style={{flexDirection:'row',gap:8,marginBottom:16}}>
+          {[now.getFullYear(), now.getFullYear()-1].map(y=>(
+            <TouchableOpacity key={y} onPress={()=>setSelY(y)} style={[s.pill, selY===y&&s.pillOn]}>
+              <Text style={[s.pillTxt, selY===y&&s.pillTxtOn]}>{y}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Chain header */}
         <View style={s.chainCard}>
-          <Text style={s.chainLabel}>CHAIN — {MONTHS[selM-1].toUpperCase()} {selY}</Text>
-          <View style={s.chainRow}>
-            <View style={s.chainStat}>
-              <Text style={s.chainVal}>{fmt(totalRev)} PLN</Text>
-              <Text style={s.chainStatLbl}>Total Revenue</Text>
-            </View>
-            <View style={s.chainStat}>
-              <Text style={s.chainVal}>{scored.length}</Text>
-              <Text style={s.chainStatLbl}>Active Branches</Text>
-            </View>
-            <View style={s.chainStat}>
-              <Text style={s.chainVal}>{scored.length > 0 ? fmt(totalRev/scored.length) : '0'}</Text>
-              <Text style={s.chainStatLbl}>Avg/Branch</Text>
-            </View>
+          <Text style={s.chainLbl}>CHAIN — {MONTHS[selM-1].toUpperCase()} {selY}</Text>
+          <View style={{flexDirection:'row'}}>
+            <View style={s.chainStat}><Text style={s.chainVal}>{fmtK(totalRev)} PLN</Text><Text style={s.chainStatLbl}>Total Revenue</Text></View>
+            <View style={s.chainStat}><Text style={s.chainVal}>{sorted.length}</Text><Text style={s.chainStatLbl}>Active Branches</Text></View>
+            <View style={s.chainStat}><Text style={s.chainVal}>{sorted.length>0?fmtK(totalRev/sorted.length):'0'}</Text><Text style={s.chainStatLbl}>Avg / Branch</Text></View>
           </View>
         </View>
 
-        {scored.length === 0 && (
-          <View style={s.empty}><Text style={s.emptyTxt}>No data for {MONTHS[selM-1]} {selY}</Text></View>
-        )}
+        {sorted.length===0 && <View style={s.empty}><Text style={s.emptyTxt}>No data for {MONTHS[selM-1]} {selY}</Text></View>}
 
-        {/* Branch cards */}
-        {scored.map((item, idx) => {
-          const rank = idx + 1;
-          const isGood = item.score >= 75, isWarn = item.score >= 50 && item.score < 75;
-          const color = isGood ? COLORS.primary : isWarn ? COLORS.warning : COLORS.danger;
-          const bg = isGood ? COLORS.primaryLight : isWarn ? COLORS.warningLight : COLORS.dangerLight;
-          const revDiff = item.d.revenue - avgRev;
-          const medal = medals[idx] || (rank <= Math.ceil(scored.length/2) ? '📈' : '📉');
+        {sorted.map((b, idx) => {
+          const medal = medals[idx]||(idx<sorted.length/2?'📈':'📉');
+          const isExp = expanded===b.name;
+          const scoreColor = b.score>=75?COLORS.primary:b.score>=50?COLORS.warning:COLORS.danger;
+          const specStatus = b.specPct===0?null:b.specPct<=10?{c:'#2E7D32',lbl:'Good'}:b.specPct<=15?{c:COLORS.warning,lbl:'High'}:{c:COLORS.danger,lbl:'Too High'};
+          const rphVsAvg = avgRPH>0&&b.rph>0 ? (b.rph-avgRPH)/avgRPH*100 : null;
+          const margin = b.revenue>0 ? b.estProfit/b.revenue*100 : null;
 
           return (
-            <View key={item.br} style={[s.card, { borderColor: color, backgroundColor: bg }]}>
-              {/* Header */}
-              <View style={s.cardHeader}>
-                <Text style={s.medal}>{medal}</Text>
-                <View style={s.cardInfo}>
-                  <Text style={[s.cardName, { color }]}>#{rank} {item.br}</Text>
-                  <Text style={s.cardSub}>{item.d.reports} reports · Score {item.score}/100</Text>
+            <View key={b.name} style={s.card}>
+              <TouchableOpacity onPress={()=>toggle(b.name)} activeOpacity={0.8}>
+                <View style={{flexDirection:'row',alignItems:'center',gap:8,marginBottom:8}}>
+                  <Text style={s.medal}>{medal}</Text>
+                  <View style={{flex:1}}>
+                    <Text style={s.cardName}>#{idx+1} {b.name}</Text>
+                    <Text style={s.cardSub}>{b.reportCount} reports · Score {b.score}/100</Text>
+                  </View>
+                  <View style={{alignItems:'flex-end'}}>
+                    <Text style={[s.cardRev,{color:scoreColor}]}>{fmtK(b.revenue)} PLN</Text>
+                    {b.todayRev>0&&<Text style={s.cardToday}>{fmtK(b.todayRev)} today</Text>}
+                  </View>
+                  <Text style={s.chevron}>{isExp?'▲':'▼'}</Text>
                 </View>
-                <View style={s.cardRight}>
-                  <Text style={[s.cardRev, { color }]}>{fmt(item.d.revenue/1000)}k PLN</Text>
-                  <Text style={[s.cardDiff, { color: revDiff >= 0 ? COLORS.primary : COLORS.danger }]}>
-                    {revDiff >= 0 ? '+' : ''}{fmt(revDiff/1000)}k vs avg
-                  </Text>
-                </View>
-              </View>
+                <View style={s.barBg}><View style={[s.barFill,{width:b.score+'%',backgroundColor:scoreColor}]}/></View>
+              </TouchableOpacity>
 
-              {/* Score bar */}
-              <View style={s.barBg}>
-                <View style={[s.barFill, { width: item.score+'%', backgroundColor: color }]} />
-              </View>
+              {isExp&&(
+                <View style={s.detail}>
+                  {/* Revenue */}
+                  <Text style={s.secLbl}>💰 Revenue</Text>
+                  <View style={s.grid4}>
+                    <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.revenue)}</Text><Text style={s.statLbl}>This Month</Text></View>
+                    <View style={s.statBox}><Text style={s.statVal}>{b.todayRev>0?fmtK(b.todayRev):'—'}</Text><Text style={s.statLbl}>Today</Text></View>
+                    <View style={s.statBox}>
+                      {b.revGrowth!==null?<Text style={[s.statVal,{color:b.revGrowth>=0?COLORS.primary:COLORS.danger}]}>{b.revGrowth>=0?'+':''}{fmtPct(b.revGrowth)}</Text>:<Text style={s.statVal}>—</Text>}
+                      <Text style={s.statLbl}>vs Last Month</Text>
+                    </View>
+                    <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.lastRev)}</Text><Text style={s.statLbl}>Last Month</Text></View>
+                  </View>
 
-              {/* Metrics grid */}
-              <View style={s.metrics}>
-                <View style={s.metric}>
-                  <Text style={s.metricVal}>{item.d.hours > 0 ? Math.round(item.rph) : '—'}</Text>
-                  <Text style={s.metricLbl}>PLN/hr</Text>
-                </View>
-                <View style={s.metric}>
-                  <Text style={s.metricVal}>{item.delPct.toFixed(0)}%</Text>
-                  <Text style={s.metricLbl}>Delivery</Text>
-                </View>
-                <View style={s.metric}>
-                  <Text style={s.metricVal}>{item.d.warzywa > 0 ? item.wPct.toFixed(1)+'%' : '—'}</Text>
-                  <Text style={s.metricLbl}>Warzywa</Text>
-                </View>
-                <View style={s.metric}>
-                  <Text style={[s.metricVal, { color: item.d.netProfit >= 0 ? COLORS.primary : COLORS.danger }]}>
-                    {item.d.netProfit >= 0 ? '+' : ''}{fmt(item.d.netProfit/1000)}k
-                  </Text>
-                  <Text style={s.metricLbl}>Net Profit</Text>
-                </View>
-              </View>
+                  {/* SPEC */}
+                  <Text style={s.secLbl}>📦 SPEC Usage</Text>
+                  <View style={s.grid4}>
+                    <View style={s.statBox}><Text style={s.statVal}>{b.chickenQty>0?b.chickenQty+'kg':'—'}</Text><Text style={s.statLbl}>Chicken</Text></View>
+                    <View style={s.statBox}><Text style={s.statVal}>{b.lambQty>0?b.lambQty+'kg':'—'}</Text><Text style={s.statLbl}>Lamb</Text></View>
+                    <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.specCost)}</Text><Text style={s.statLbl}>SPEC Cost</Text></View>
+                    <View style={[s.statBox,specStatus&&{backgroundColor:specStatus.c+'22'}]}>
+                      <Text style={[s.statVal,{color:specStatus?specStatus.c:'#999'}]}>{b.specPct>0?fmtPct(b.specPct):'—'}</Text>
+                      <Text style={s.statLbl}>{specStatus?specStatus.lbl:'Food Cost %'}</Text>
+                    </View>
+                  </View>
 
-              {/* Tips */}
-              {item.wPct > 0 && item.wPct > avgWarz * 1.1 && (
-                <View style={s.tip}><Text style={s.tipTxt}>🥬 Warzywa {item.wPct.toFixed(1)}% — above chain avg {avgWarz.toFixed(1)}% — review portions</Text></View>
-              )}
-              {item.delPct > 0 && item.delPct < avgDel * 0.85 && (
-                <View style={s.tip}><Text style={s.tipTxt}>🛵 Delivery {item.delPct.toFixed(1)}% — below avg {avgDel.toFixed(1)}% — push platforms</Text></View>
-              )}
-              {item.score >= 75 && (
-                <View style={[s.tip, { backgroundColor: COLORS.primaryLight }]}><Text style={[s.tipTxt, { color: COLORS.primary }]}>✅ Strong performance — use as chain benchmark</Text></View>
+                  {/* Labor */}
+                  <Text style={s.secLbl}>👨‍🍳 Labor Efficiency</Text>
+                  <View style={s.grid4}>
+                    <View style={s.statBox}><Text style={s.statVal}>{b.hours>0?b.hours+'h':'—'}</Text><Text style={s.statLbl}>Total Hours</Text></View>
+                    <View style={s.statBox}><Text style={[s.statVal,{color:COLORS.primary}]}>{b.rph>0?Math.round(b.rph)+' PLN':'—'}</Text><Text style={s.statLbl}>PLN / hr</Text></View>
+                    <View style={s.statBox}>
+                      {rphVsAvg!==null?<Text style={[s.statVal,{color:rphVsAvg>=0?COLORS.primary:COLORS.danger}]}>{rphVsAvg>=0?'+':''}{fmtPct(rphVsAvg)}</Text>:<Text style={s.statVal}>—</Text>}
+                      <Text style={s.statLbl}>vs Chain Avg</Text>
+                    </View>
+                    <View style={s.statBox}><Text style={s.statVal}>{avgRPH>0?Math.round(avgRPH)+' PLN':'—'}</Text><Text style={s.statLbl}>Chain Avg</Text></View>
+                  </View>
+
+                  {/* Delivery */}
+                  <Text style={s.secLbl}>🚚 Delivery</Text>
+                  <View style={s.grid4}>
+                    <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.delivery)}</Text><Text style={s.statLbl}>Delivery Rev</Text></View>
+                    <View style={s.statBox}><Text style={s.statVal}>{b.deliveryPct>0?fmtPct(b.deliveryPct):'—'}</Text><Text style={s.statLbl}>Delivery %</Text></View>
+                    <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.revenue-b.delivery)}</Text><Text style={s.statLbl}>Direct Rev</Text></View>
+                    <View style={s.statBox}><Text style={s.statVal}>{fmtK(b.cfExpenses)}</Text><Text style={s.statLbl}>CF Expenses</Text></View>
+                  </View>
+
+                  {/* Estimated Profit */}
+                  <Text style={s.secLbl}>💵 Estimated Profit</Text>
+                  <View style={[s.profitBox,{borderColor:b.estProfit>=0?COLORS.primary:COLORS.danger}]}>
+                    <View style={s.profitRow}><Text style={s.profitLbl}>Revenue</Text><Text style={s.profitVal}>+{fmtK(b.revenue)} PLN</Text></View>
+                    <View style={s.profitRow}><Text style={s.profitLbl}>CF Expenses</Text><Text style={[s.profitVal,{color:COLORS.danger}]}>-{fmtK(b.cfExpenses)} PLN</Text></View>
+                    <View style={s.profitRow}><Text style={s.profitLbl}>SPEC Cost</Text><Text style={[s.profitVal,{color:COLORS.danger}]}>-{fmtK(b.specCost)} PLN</Text></View>
+                    <View style={[s.profitRow,{borderTopWidth:1,borderTopColor:'#eee',marginTop:6,paddingTop:8}]}>
+                      <Text style={[s.profitLbl,{fontWeight:'800'}]}>Est. Profit</Text>
+                      <Text style={[s.profitVal,{fontSize:16,fontWeight:'900',color:b.estProfit>=0?COLORS.primary:COLORS.danger}]}>{b.estProfit>=0?'+':''}{fmtK(b.estProfit)} PLN</Text>
+                    </View>
+                  </View>
+
+                  {/* Warnings */}
+                  {b.warnings.length>0&&(
+                    <View style={s.warnBox}>
+                      {b.warnings.map((w,i)=><Text key={i} style={s.warnTxt}>⚠️ {w}</Text>)}
+                    </View>
+                  )}
+
+                  {/* Trend */}
+                  {b.revGrowth!==null&&(
+                    <View style={[s.trendBadge,{backgroundColor:b.revGrowth>=0?'#E8F5E9':'#FFEBEE'}]}>
+                      <Text style={[s.trendTxt,{color:b.revGrowth>=0?COLORS.primary:COLORS.danger}]}>
+                        {b.revGrowth>=0?'📈':'📉'} {b.revGrowth>=0?'+':''}{fmtPct(b.revGrowth)} vs last month ({fmtK(b.lastRev)} → {fmtK(b.revenue)} PLN)
+                      </Text>
+                    </View>
+                  )}
+                </View>
               )}
             </View>
           );
         })}
 
-        <Text style={s.pullHint}>Pull down to refresh</Text>
+        {sorted.length>0&&(
+          <>
+            <TouchableOpacity style={s.tableToggle} onPress={()=>setShowTable(p=>!p)}>
+              <Text style={s.tableToggleTxt}>📊 {showTable?'Hide':'Show'} Comparison Table</Text>
+            </TouchableOpacity>
+            {showTable&&(
+              <View style={s.tableCard}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View>
+                    <View style={[s.tableRow,{borderBottomWidth:2,borderBottomColor:'#ddd'}]}>
+                      {['Branch','Revenue','SPEC%','PLN/hr','Margin'].map(h=>(
+                        <Text key={h} style={[s.tableCell,{fontWeight:'800',color:'#555',fontSize:11}]}>{h}</Text>
+                      ))}
+                    </View>
+                    {sorted.map((b,i)=>{
+                      const margin = b.revenue>0 ? b.estProfit/b.revenue*100 : null;
+                      const specFlag = b.specPct===0?'—':b.specPct<=10?'✅':b.specPct<=15?'⚠️':'🔴';
+                      const marginFlag = margin===null?'—':margin>=20?'✅':margin>=0?'⚠️':'🔴';
+                      return (
+                        <View key={b.name} style={[s.tableRow,i%2===0&&{backgroundColor:'#F9F9F9'}]}>
+                          <Text style={[s.tableCell,{fontWeight:'700'}]} numberOfLines={1}>{b.name.split(' ')[0]}</Text>
+                          <Text style={s.tableCell}>{fmtK(b.revenue)}</Text>
+                          <Text style={s.tableCell}>{specFlag} {b.specPct>0?fmtPct(b.specPct):''}</Text>
+                          <Text style={s.tableCell}>{b.rph>0?Math.round(b.rph):'—'}</Text>
+                          <Text style={s.tableCell}>{marginFlag} {margin!==null?fmtPct(margin):''}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+            )}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.background },
-  header: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  title: { fontSize: 18, fontWeight: '900', color: COLORS.text },
-  scroll: { flex: 1 },
-  content: { padding: 14, paddingBottom: 30 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  selRow: { flexDirection: 'row', marginBottom: 8, gap: 6 },
-  pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, marginRight: 6 },
-  pillActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  pillTxt: { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600' },
-  pillTxtActive: { color: '#fff' },
-  chainCard: { backgroundColor: COLORS.primary, borderRadius: 14, padding: 16, marginBottom: 14, marginTop: 4 },
-  chainLabel: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginBottom: 10 },
-  chainRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  chainStat: { alignItems: 'center', flex: 1 },
-  chainVal: { fontSize: 18, fontWeight: '900', color: '#fff' },
-  chainStatLbl: { fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
-  empty: { padding: 40, alignItems: 'center' },
-  emptyTxt: { color: COLORS.textSecondary, fontSize: 14 },
-  card: { borderWidth: 2, borderRadius: 14, padding: 14, marginBottom: 12 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  medal: { fontSize: 26, marginRight: 10 },
-  cardInfo: { flex: 1 },
-  cardName: { fontSize: 13, fontWeight: '900' },
-  cardSub: { fontSize: 10, color: COLORS.textSecondary, marginTop: 1 },
-  cardRight: { alignItems: 'flex-end' },
-  cardRev: { fontSize: 16, fontWeight: '900' },
-  cardDiff: { fontSize: 11, fontWeight: '700', marginTop: 1 },
-  barBg: { backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 4, height: 8, marginBottom: 12 },
-  barFill: { height: '100%', borderRadius: 4 },
-  metrics: { flexDirection: 'row', gap: 6, marginBottom: 10 },
-  metric: { flex: 1, backgroundColor: 'rgba(255,255,255,0.8)', borderRadius: 8, padding: 8, alignItems: 'center' },
-  metricVal: { fontSize: 14, fontWeight: '900', color: COLORS.text },
-  metricLbl: { fontSize: 9, color: COLORS.textSecondary, marginTop: 2 },
-  tip: { backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: 8, marginTop: 4 },
-  tipTxt: { fontSize: 11, color: COLORS.text },
-  pullHint: { textAlign: 'center', color: COLORS.textSecondary, fontSize: 11, marginTop: 10 },
+  safe:{flex:1,backgroundColor:'#F4F6F8'},
+  center:{flex:1,justifyContent:'center',alignItems:'center'},
+  content:{padding:16,paddingBottom:50},
+  pageTitle:{fontSize:28,fontWeight:'800',color:'#111',marginBottom:12},
+  pill:{paddingHorizontal:14,paddingVertical:7,borderRadius:20,backgroundColor:'#fff',borderWidth:1.5,borderColor:'#ddd',marginRight:6},
+  pillOn:{backgroundColor:COLORS.primary,borderColor:COLORS.primary},
+  pillTxt:{fontSize:12,fontWeight:'600',color:'#777'},
+  pillTxtOn:{color:'#fff'},
+  chainCard:{backgroundColor:COLORS.primary,borderRadius:16,padding:16,marginBottom:16},
+  chainLbl:{fontSize:10,fontWeight:'800',color:'rgba(255,255,255,0.7)',letterSpacing:1,marginBottom:10},
+  chainStat:{flex:1,alignItems:'center'},
+  chainVal:{fontSize:18,fontWeight:'900',color:'#fff'},
+  chainStatLbl:{fontSize:10,color:'rgba(255,255,255,0.7)',marginTop:2},
+  empty:{padding:40,alignItems:'center'},
+  emptyTxt:{color:'#aaa',fontSize:14},
+  card:{backgroundColor:'#fff',borderRadius:16,padding:14,marginBottom:10,shadowColor:'#000',shadowOpacity:0.05,shadowRadius:4,elevation:2},
+  medal:{fontSize:24},
+  cardName:{fontSize:14,fontWeight:'800',color:'#111'},
+  cardSub:{fontSize:11,color:'#999',marginTop:1},
+  cardRev:{fontSize:15,fontWeight:'900'},
+  cardToday:{fontSize:11,color:'#888',marginTop:1},
+  chevron:{fontSize:12,color:'#aaa',marginLeft:4},
+  barBg:{backgroundColor:'#eee',borderRadius:4,height:6},
+  barFill:{height:'100%',borderRadius:4},
+  detail:{marginTop:14,paddingTop:14,borderTopWidth:1,borderTopColor:'#f0f0f0'},
+  secLbl:{fontSize:12,fontWeight:'800',color:'#555',letterSpacing:0.5,marginTop:12,marginBottom:8},
+  grid4:{flexDirection:'row',flexWrap:'wrap',gap:8},
+  statBox:{width:'47%',backgroundColor:'#F8F8F8',borderRadius:10,padding:10},
+  statVal:{fontSize:16,fontWeight:'800',color:'#111'},
+  statLbl:{fontSize:10,color:'#999',marginTop:2},
+  profitBox:{borderWidth:1.5,borderRadius:12,padding:12,marginTop:4},
+  profitRow:{flexDirection:'row',justifyContent:'space-between',paddingVertical:5},
+  profitLbl:{fontSize:13,color:'#555'},
+  profitVal:{fontSize:13,fontWeight:'700',color:'#111'},
+  warnBox:{backgroundColor:'#FFF8E1',borderRadius:10,padding:12,marginTop:10,gap:6},
+  warnTxt:{fontSize:12,color:'#E65100',lineHeight:18},
+  trendBadge:{borderRadius:10,padding:12,marginTop:10},
+  trendTxt:{fontSize:13,fontWeight:'600',lineHeight:20},
+  tableToggle:{backgroundColor:'#fff',borderRadius:12,padding:14,alignItems:'center',marginTop:8,marginBottom:4,shadowColor:'#000',shadowOpacity:0.05,shadowRadius:3,elevation:2},
+  tableToggleTxt:{fontSize:14,fontWeight:'700',color:COLORS.primary},
+  tableCard:{backgroundColor:'#fff',borderRadius:12,padding:12,shadowColor:'#000',shadowOpacity:0.05,shadowRadius:3,elevation:2},
+  tableRow:{flexDirection:'row',paddingVertical:8,borderBottomWidth:1,borderBottomColor:'#f5f5f5'},
+  tableCell:{width:85,fontSize:12,color:'#333',paddingHorizontal:4},
 });
