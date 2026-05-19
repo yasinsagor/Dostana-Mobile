@@ -1,11 +1,15 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, StatusBar } from 'react-native';
-import { COLORS } from '../constants';
+import { View, Image, Text, StyleSheet, Animated, Dimensions } from 'react-native';
+
+const { width } = Dimensions.get('window');
 
 export default function SplashScreen({ onDone }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.7)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+  const slideAnim = useRef(new Animated.Value(40)).current;
+  const dotAnim1 = useRef(new Animated.Value(0.3)).current;
+  const dotAnim2 = useRef(new Animated.Value(0.3)).current;
+  const dotAnim3 = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -14,37 +18,86 @@ export default function SplashScreen({ onDone }) {
       Animated.timing(slideAnim, { toValue: 0, duration: 700, useNativeDriver: true }),
     ]).start();
 
+    const dotLoop = (anim, delay) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 1, duration: 350, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0.3, duration: 350, useNativeDriver: true }),
+        ])
+      ).start();
+
+    dotLoop(dotAnim1, 0);
+    dotLoop(dotAnim2, 200);
+    dotLoop(dotAnim3, 400);
+
     const timer = setTimeout(() => {
       Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => onDone());
-    }, 2200);
+    }, 2500);
 
     return () => clearTimeout(timer);
   }, []);
 
   return (
-    <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <Animated.View style={[s.logoWrap, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
-        <Text style={s.emoji}>🌯</Text>
+    <View style={styles.container}>
+      <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ scale: scaleAnim }, { translateY: slideAnim }] }]}>
+        <View style={styles.logoBox}>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </View>
+        <Text style={styles.subtitle}>Management Portal</Text>
       </Animated.View>
-      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-        <Text style={s.brand}>Dostana Kebab</Text>
-        <Text style={s.sub}>Management Portal</Text>
-      </Animated.View>
-      <Animated.View style={[s.footer, { opacity: fadeAnim }]}>
-        <View style={s.dot} /><View style={[s.dot, s.dotMid]} /><View style={s.dot} />
+
+      <Animated.View style={[styles.dotsContainer, { opacity: fadeAnim }]}>
+        <Animated.View style={[styles.dot, { opacity: dotAnim1 }]} />
+        <Animated.View style={[styles.dot, { opacity: dotAnim2 }]} />
+        <Animated.View style={[styles.dot, { opacity: dotAnim3 }]} />
       </Animated.View>
     </View>
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
-  logoWrap: { width: 120, height: 120, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
-  emoji: { fontSize: 64 },
-  brand: { fontSize: 28, fontWeight: '900', color: '#fff', textAlign: 'center', letterSpacing: 0.5 },
-  sub: { fontSize: 14, color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginTop: 6, letterSpacing: 1 },
-  footer: { position: 'absolute', bottom: 60, flexDirection: 'row', gap: 8 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.4)' },
-  dotMid: { backgroundColor: '#fff' },
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    alignItems: 'center',
+  },
+  logoBox: {
+    width: width * 0.65,
+    height: width * 0.65,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  logo: {
+    width: '100%',
+    height: '100%',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#888',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    marginTop: 4,
+  },
+  dotsContainer: {
+    position: 'absolute',
+    bottom: 60,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E8891A',
+  },
 });
