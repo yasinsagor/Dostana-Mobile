@@ -104,13 +104,45 @@ const ct = StyleSheet.create({
   badgeTxt:  { fontSize:9, color:'#fff', fontWeight:'800' },
 });
 
+/* ─── kg size picker (Kurczak / Baranina) ────────────────────── */
+const KG_SIZES = ['10kg','15kg','20kg','25kg','30kg'];
+
+function KgPicker({ selected, onSelect }) {
+  return (
+    <View style={kp.row}>
+      <Text style={kp.label}>Size:</Text>
+      {KG_SIZES.map(k => (
+        <TouchableOpacity
+          key={k}
+          style={[kp.chip, selected===k && kp.chipOn]}
+          onPress={()=>onSelect(k)}
+          activeOpacity={0.7}
+        >
+          <Text style={[kp.txt, selected===k && kp.txtOn]}>{k}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+const kp = StyleSheet.create({
+  row:    { flexDirection:'row', alignItems:'center', gap:5, marginTop:5 },
+  label:  { fontSize:10, color:'#aaa', fontWeight:'700', marginRight:2 },
+  chip:   { paddingHorizontal:9, paddingVertical:4, borderRadius:16, borderWidth:1.5, borderColor:'#E0E0E0', backgroundColor:'#F8F8F8' },
+  chipOn: { backgroundColor:COLORS.primary, borderColor:COLORS.primary },
+  txt:    { fontSize:11, fontWeight:'700', color:'#888' },
+  txtOn:  { color:'#fff' },
+});
+
 /* ─── product row ─────────────────────────────────────────── */
-function ProductRow({ product, qty, onChange, lastQty, isMeat }) {
+function ProductRow({ product, qty, onChange, lastQty, isMeat, kgSize, onKgSize, isMeatSpecial }) {
   const qtyN = n(qty);
   const lastN = n(lastQty);
   const diff  = lastN > 0 ? qtyN - lastN : null;
   const price = product.price || fallbackPrice(product);
-  const lineCost = qtyN * price;
+  // For meat with kg size: cost = qty × kgSizeNumber × price/kg
+  const kgNum = isMeatSpecial && kgSize ? parseInt(kgSize.replace('kg',''))||1 : 1;
+  const lineCost = isMeatSpecial ? qtyN * kgNum * price : qtyN * price;
+  const totalKgDisplay = isMeatSpecial && qtyN > 0 ? `${qtyN} × ${kgSize||'10kg'} = ${qtyN*kgNum}kg` : null;
 
   const adj = (delta) => {
     const next = Math.max(0, qtyN + delta);
@@ -128,15 +160,21 @@ function ProductRow({ product, qty, onChange, lastQty, isMeat }) {
             </Text>
           )}
         </View>
-        <View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:2}}>
-          <Text style={pr.unit}>{product.unit}</Text>
-          {lineCost>0 && <Text style={pr.cost}>~{fmtK(lineCost)} PLN</Text>}
-        </View>
+        {isMeatSpecial
+          ? <KgPicker selected={kgSize||'10kg'} onSelect={onKgSize}/>
+          : (
+            <View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:2}}>
+              <Text style={pr.unit}>{product.unit}</Text>
+              {lineCost>0 && <Text style={pr.cost}>~{fmtK(lineCost)} PLN</Text>}
+            </View>
+          )
+        }
+        {totalKgDisplay && <Text style={pr.totalKg}>{totalKgDisplay} · ~{fmtK(lineCost)} PLN</Text>}
       </View>
 
       <View style={pr.controls}>
-        {/* quick +5/+10 for meat/kg items */}
-        {isMeat && (
+        {/* quick +5/+10 for other meat/kg items */}
+        {isMeat && !isMeatSpecial && (
           <View style={pr.quickRow}>
             {[5,10].map(d => (
               <TouchableOpacity key={d} style={pr.quickBtn} onPress={()=>adj(d)} activeOpacity={0.7}>
@@ -182,6 +220,7 @@ const pr = StyleSheet.create({
   stepTxt:      { fontSize:16, fontWeight:'900', color:'#555' },
   qtyInput:     { width:44, textAlign:'center', borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:8, paddingVertical:4, fontSize:14, fontWeight:'800', color:'#111', backgroundColor:'#FAFAFA' },
   qtyInputActive:{ borderColor:COLORS.primary, backgroundColor:'#E8F5E9' },
+  totalKg:      { fontSize:11, color:COLORS.primary, fontWeight:'800', marginTop:3 },
 });
 
 /* ════════════════════════════════════════════════════════════ */
@@ -197,6 +236,7 @@ export default function ManagerSpecScreen() {
   const [activeTab, setActiveTab] = useState('All');
   const [search,    setSearch]    = useState('');
   const [note,      setNote]      = useState('');
+  const [kgSizes,   setKgSizes]   = useState({}); // { productId: '25kg' } for Kurczak/Baranina
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -341,14 +381,20 @@ export default function ManagerSpecScreen() {
   async function doSubmit() {
     setSaving(true);
     try {
-      const items = ordered.map(p => ({
-        id:   p.id,
-        name: p.name,
-        qty:  n(quantities[p.id]),
-        unit: p.unit || '',
-        cat:  p.category || p.cat || 'Other',
-        price: p.price || fallbackPrice(p),
-      }));
+      const items = ordered.map(p => {
+        const isMeatSpecial = p.name==='Kurczak'||p.name==='Baranina';
+        const selectedKg = kgSizes[p.id]||'10kg';
+        const kgNum = isMeatSpecial ? parseInt(selectedKg.replace('kg',''))||1 : 1;
+        return {
+          id:   p.id,
+          name: p.name,
+          qty:  n(quantities[p.id]),
+          unit: isMeatSpecial ? selectedKg : (p.unit || ''),
+          totalKg: isMeatSpecial ? n(quantities[p.id])*kgNum : undefined,
+          cat:  p.category || p.cat || 'Other',
+          price: p.price || fallbackPrice(p),
+        };
+      });
       await insertSpecOrder({
         branch, date:today, items,
         estimated_cost: Math.round(estimatedCost),
@@ -459,6 +505,7 @@ export default function ManagerSpecScreen() {
               const isMeat = cat.toLowerCase().includes('mięso') || cat.toLowerCase().includes('meat') ||
                              (p.unit||'').toLowerCase() === 'kg';
               const lastItem = lastOrder?.items?.find(it=>it.name===p.name);
+              const isMeatSpecial = p.name==='Kurczak'||p.name==='Baranina';
               return (
                 <ProductRow
                   key={p.id}
@@ -467,6 +514,9 @@ export default function ManagerSpecScreen() {
                   onChange={v => setQty(q=>({...q,[p.id]:v}))}
                   lastQty={lastItem?.qty}
                   isMeat={isMeat}
+                  isMeatSpecial={isMeatSpecial}
+                  kgSize={kgSizes[p.id]||'10kg'}
+                  onKgSize={v => setKgSizes(k=>({...k,[p.id]:v}))}
                 />
               );
             })}
