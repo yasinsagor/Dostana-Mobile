@@ -3,21 +3,22 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 import { COLORS } from '../constants';
 
-// Screens (to be built out)
-import OwnerDashboardScreen from '../screens/owner/DashboardScreen';
-import OwnerPerformanceScreen from '../screens/owner/PerformanceScreen';
-import OwnerSpecScreen from '../screens/owner/SpecScreen';
-import OwnerCashflowScreen from '../screens/owner/CashflowScreen';
-import OwnerSettingsScreen from '../screens/owner/SettingsScreen';
+import OwnerDashboardScreen    from '../screens/owner/DashboardScreen';
+import OwnerPerformanceScreen  from '../screens/owner/PerformanceScreen';
+import OwnerSpecScreen         from '../screens/owner/SpecScreen';
+import OwnerCashflowScreen     from '../screens/owner/CashflowScreen';
+import OwnerOperationsScreen   from '../screens/owner/OperationsScreen';
+import OwnerSettingsScreen     from '../screens/owner/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 
 const tabs = [
-  { name: 'Dashboard', component: OwnerDashboardScreen, icon: '🏠' },
-  { name: 'Performance', component: OwnerPerformanceScreen, icon: '📊' },
-  { name: 'SPEC', component: OwnerSpecScreen, icon: '📦' },
-  { name: 'Cash Flow', component: OwnerCashflowScreen, icon: '💰' },
-  { name: 'Settings', component: OwnerSettingsScreen, icon: '⚙️' },
+  { name: 'Dashboard',    component: OwnerDashboardScreen,   icon: '🏠' },
+  { name: 'Performance',  component: OwnerPerformanceScreen, icon: '📊' },
+  { name: 'SPEC',         component: OwnerSpecScreen,        icon: '📦' },
+  { name: 'Cash Flow',    component: OwnerCashflowScreen,    icon: '💰' },
+  { name: 'Operations',   component: OwnerOperationsScreen,  icon: '🛠' },
+  { name: 'Settings',     component: OwnerSettingsScreen,    icon: '⚙️' },
 ];
 
 export default function OwnerNavigator() {
@@ -28,9 +29,10 @@ export default function OwnerNavigator() {
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textSecondary,
         tabBarStyle: { paddingBottom: 4, height: 60 },
+        tabBarLabelStyle: { fontSize: 10 },
         tabBarIcon: ({ focused }) => {
           const tab = tabs.find(t => t.name === route.name);
-          return <Text style={{ fontSize: focused ? 22 : 18 }}>{tab?.icon}</Text>;
+          return <Text style={{ fontSize: focused ? 20 : 16 }}>{tab?.icon}</Text>;
         },
       })}
     >
