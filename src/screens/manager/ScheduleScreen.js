@@ -5,6 +5,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { COLORS } from '../../constants';
@@ -188,6 +191,92 @@ export default function ManagerScheduleScreen() {
     } catch (e) { Alert.alert('Share failed', e.message); }
   }
 
+  /* export PDF */
+  async function exportSchedulePDF() {
+    if (shifts.length === 0) { Alert.alert('No shifts', 'Add shifts before exporting.'); return; }
+
+    const staffTotals = {};
+    shifts.forEach(sh => { staffTotals[sh.staff_name] = (staffTotals[sh.staff_name]||0) + calcHours(sh.shift_start, sh.shift_end); });
+
+    const dayRows = days.map(day => {
+      const dayShifts = shifts.filter(sh => sh.day_index === day.index).sort((a,b)=>a.shift_start.localeCompare(b.shift_start));
+      if (dayShifts.length === 0) {
+        return `<tr><td class="day-cell"><b>${day.full}</b><br/><span class="date">${fmtShort(day.iso)}</span></td><td class="empty-cell">— no shifts —</td></tr>`;
+      }
+      const shiftHtml = dayShifts.map(sh => {
+        const hrs = calcHours(sh.shift_start, sh.shift_end);
+        return `<div class="shift-row">
+          <span class="staff-name">${sh.staff_name}</span>
+          <span class="shift-time">${sh.shift_start} – ${sh.shift_end}</span>
+          <span class="shift-hrs">${fmtHrs(hrs)}</span>
+          ${sh.role ? `<span class="shift-role">${sh.role}</span>` : ''}
+          ${sh.note ? `<span class="shift-note">📝 ${sh.note}</span>` : ''}
+        </div>`;
+      }).join('');
+      const dayTotal = dayShifts.reduce((s,sh)=>s+calcHours(sh.shift_start,sh.shift_end),0);
+      const isToday = day.iso === isoDate(new Date());
+      return `<tr${isToday?' class="today-row"':''}>
+        <td class="day-cell"><b>${day.full}</b><br/><span class="date">${fmtShort(day.iso)}</span><br/><span class="day-total">${fmtHrs(dayTotal)} total</span></td>
+        <td>${shiftHtml}</td>
+      </tr>`;
+    }).join('');
+
+    const summaryRows = Object.entries(staffTotals).sort((a,b)=>b[1]-a[1])
+      .map(([name,hrs]) => `<tr><td>${name}</td><td>${fmtHrs(hrs)}</td><td>${Math.round(hrs*22)} PLN est.</td></tr>`).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 28px; color: #222; font-size: 12px; }
+      h1 { color: #2E7D32; font-size: 20px; margin-bottom: 2px; }
+      .meta { color: #888; font-size: 11px; margin-bottom: 20px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+      th { background: #2E7D32; color: #fff; padding: 8px 10px; text-align: left; font-size: 12px; }
+      td { padding: 10px; border-bottom: 1px solid #EEE; vertical-align: top; }
+      .day-cell { width: 110px; background: #F9F9F9; font-size: 12px; }
+      .date { color: #aaa; font-size: 10px; }
+      .day-total { color: #2E7D32; font-weight: bold; font-size: 10px; margin-top: 4px; display: block; }
+      .today-row td { background: #E8F5E9 !important; }
+      .empty-cell { color: #ccc; font-style: italic; font-size: 11px; }
+      .shift-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #F5F5F5; flex-wrap: wrap; }
+      .shift-row:last-child { border-bottom: none; }
+      .staff-name { font-weight: bold; min-width: 90px; color: #222; }
+      .shift-time { color: #555; min-width: 100px; }
+      .shift-hrs { color: #2E7D32; font-weight: bold; min-width: 40px; }
+      .shift-role { background: #E8F5E9; color: #2E7D32; border-radius: 4px; padding: 1px 6px; font-size: 10px; }
+      .shift-note { color: #aaa; font-size: 10px; font-style: italic; width: 100%; }
+      h2 { color: #1565C0; font-size: 13px; border-bottom: 2px solid #1565C0; padding-bottom: 4px; margin-top: 0; }
+      .sum-table th { background: #1565C0; }
+      .sum-table td { padding: 7px 10px; }
+      tr:nth-child(even) td { background: #F9F9F9; }
+    </style></head><body>
+      <h1>📅 Staff Schedule — ${branch}</h1>
+      <div class="meta">Week: ${fmtShort(days[0].iso)} – ${fmtShort(days[6].iso)} ${weekStart.getFullYear()} &nbsp;|&nbsp; Generated: ${fmtShort(isoDate(new Date()))}</div>
+
+      <table>
+        <thead><tr><th style="width:110px">Day</th><th>Shifts</th></tr></thead>
+        <tbody>${dayRows}</tbody>
+      </table>
+
+      <h2>Weekly Summary</h2>
+      <table class="sum-table">
+        <thead><tr><th>Staff Member</th><th>Total Hours</th><th>Est. Labor</th></tr></thead>
+        <tbody>${summaryRows}</tbody>
+      </table>
+    </body></html>`;
+
+    try {
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const dest = FileSystem.cacheDirectory + `schedule_${branch}_${ws}.pdf`.replace(/\s/g,'_');
+      await FileSystem.moveAsync({ from: uri, to: dest });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(dest, { mimeType:'application/pdf', dialogTitle:'Export Schedule PDF', UTI:'com.adobe.pdf' });
+      } else {
+        await Print.printAsync({ uri: dest });
+      }
+    } catch (e) { Alert.alert('PDF Export Failed', e.message); }
+  }
+
   /* weekly summary */
   const staffHours = {};
   shifts.forEach(sh => {
@@ -216,10 +305,16 @@ export default function ManagerScheduleScreen() {
           </View>
           <TouchableOpacity onPress={nextWeek} style={s.navBtn}><Text style={s.navTxt}>›</Text></TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={shareSchedule} style={s.shareBtn} activeOpacity={0.8}>
-          <Text style={{fontSize:16}}>📤</Text>
-          <Text style={s.shareTxt}>Share</Text>
-        </TouchableOpacity>
+        <View style={{flexDirection:'row',gap:8}}>
+          <TouchableOpacity onPress={exportSchedulePDF} style={[s.shareBtn,{backgroundColor:'#1B5E20'}]} activeOpacity={0.8}>
+            <Text style={{fontSize:15}}>📄</Text>
+            <Text style={s.shareTxt}>PDF</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={shareSchedule} style={s.shareBtn} activeOpacity={0.8}>
+            <Text style={{fontSize:15}}>📤</Text>
+            <Text style={s.shareTxt}>Share</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
