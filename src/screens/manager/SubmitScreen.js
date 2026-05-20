@@ -333,7 +333,7 @@ export default function ManagerSubmitScreen() {
     try {
       const reportData = {
         branch, date: selectedDate,
-        revenue: rev, card: cardN, cash: cashN, hours: hoursN, total_hours: hoursN,
+        revenue: rev, card: cardN, cash: cashN, total_hours: hoursN,
         workers_hours: JSON.stringify(workers.filter(w => n(w.hours) > 0)),
         total_delivery: totalDelivery,
         total_revenue: rev,
