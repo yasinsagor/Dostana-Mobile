@@ -11,6 +11,7 @@ import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase, fetchDailyReports, fetchCashflowReports, fetchSpecOrders, fetchAllDailyReports } from '../../lib/supabase';
 import { COLORS } from '../../constants';
+import { FALLBACK_PRODUCTS } from '../../lib/products';
 
 /* ─── helpers ───────────────────────────────────────────────── */
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -38,6 +39,15 @@ function parseUnitKg(unit) {
   if (!unit) return 1;
   const m = String(unit).match(/(\d+)\s*kg/i);
   return m ? parseInt(m[1]) : (String(unit).toLowerCase() === 'kg' ? 1 : 0);
+}
+function priceForItem(it) {
+  if (it.price && parseFloat(it.price) > 0) return parseFloat(it.price);
+  const fp = FALLBACK_PRODUCTS.find(p => p.name === it.name);
+  if (fp) return fp.price;
+  const nm = (it.name || '').toLowerCase();
+  if (nm.includes('kurczak')) return 8;
+  if (nm.includes('baran')) return 22;
+  return 10;
 }
 function pct(a, b) { if (!b) return null; return Math.round((a - b) / b * 100); }
 function trendArrow(p) {
@@ -97,7 +107,7 @@ const itb = StyleSheet.create({
   container: { flexDirection: 'row', paddingHorizontal: 8 },
   tab: { paddingHorizontal: 16, paddingVertical: 11, borderBottomWidth: 2, borderBottomColor: 'transparent', marginRight: 2 },
   active: { borderBottomColor: COLORS.primary },
-  txt: { fontSize: 13, fontWeight: '600', color: '#aaa' },
+  txt: { fontSize: 13, fontWeight: '600', color: '#666' },
   activeTxt: { color: COLORS.primary, fontWeight: '800' },
 });
 
@@ -856,7 +866,7 @@ export default function ManagerMyDataScreen() {
                 return s + (it.totalKg || qty * parseUnitKg(it.unit) || qty);
               }, 0);
               const orderCost = items.reduce((s, it) => {
-                return s + parseFloat(it.qty || 0) * parseFloat(it.price || 0);
+                return s + parseFloat(it.qty || 0) * priceForItem(it);
               }, 0);
               const key = `sp_${o.id || idx}`;
               return (
@@ -867,8 +877,8 @@ export default function ManagerMyDataScreen() {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                           <Text style={s.recDate}>{o.date} <Text style={s.recDay}>{o.date ? dayName(o.date) : ''}</Text></Text>
                           <View style={{ alignItems: 'flex-end' }}>
-                            <Text style={[s.recRev, { color: '#6A1B9A' }]}>{Math.round(totalKg)}kg total</Text>
-                            {orderCost > 0 && <Text style={{ fontSize: 11, color: '#6A1B9A', fontWeight: '700' }}>~{fmtK(orderCost)} PLN</Text>}
+                            <Text style={[s.recRev, { color: '#6A1B9A' }]}>~{fmtK(orderCost)} PLN</Text>
+                            <Text style={{ fontSize: 11, color: '#aaa', fontWeight: '600' }}>{Math.round(totalKg)}kg</Text>
                           </View>
                         </View>
                         <Text style={s.recMeta}>{items.length} items · {o.note || 'no note'}</Text>
@@ -883,7 +893,7 @@ export default function ManagerMyDataScreen() {
                           <Text style={s.detailLbl}>{it.name}</Text>
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text style={[s.detailVal, { color: '#6A1B9A' }]}>{it.qty} {it.unit || 'kg'}</Text>
-                            {it.price > 0 && <Text style={{ fontSize: 10, color: '#aaa' }}>~{fmtK(parseFloat(it.qty || 0) * parseFloat(it.price || 0))} PLN</Text>}
+                            <Text style={{ fontSize: 10, color: '#aaa' }}>~{fmtK(parseFloat(it.qty || 0) * priceForItem(it))} PLN</Text>
                           </View>
                         </View>
                       ))}
