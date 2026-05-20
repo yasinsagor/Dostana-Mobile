@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Switch, ActivityIndicator,
+  Alert, Switch, ActivityIndicator, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase } from '../../lib/supabase';
+import { supabase, fetchBranchWorkers, saveBranchWorkers } from '../../lib/supabase';
 import { COLORS, BRANCHES } from '../../constants';
 
 /* ─── helpers ──────────────────────────────────────────────── */
@@ -170,9 +170,64 @@ export default function OwnerSettingsScreen() {
   const [laborWarn,  setLaborWarn]  = useState('25');
   const [profitWarn, setProfitWarn] = useState('8');
 
+  /* workers management */
+  const [workerBranch,   setWorkerBranch]   = useState(BRANCHES[0]?.name || '');
+  const [workerList,     setWorkerList]      = useState([]);
+  const [workerLoading,  setWorkerLoading]   = useState(false);
+  const [newWorkerName,  setNewWorkerName]   = useState('');
+  const [workerSaving,   setWorkerSaving]    = useState(false);
+
+  const loadWorkers = useCallback(async (branch) => {
+    setWorkerLoading(true);
+    try {
+      const { data } = await supabase
+        .from('branch_workers')
+        .select('id, name, active')
+        .eq('branch', branch)
+        .order('name');
+      setWorkerList(data || []);
+    } catch { setWorkerList([]); }
+    setWorkerLoading(false);
+  }, []);
+
+  const addWorker = async () => {
+    const name = newWorkerName.trim();
+    if (!name) return;
+    setWorkerSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from('branch_workers')
+        .upsert({ branch: workerBranch, name, active: true }, { onConflict: 'branch,name' })
+        .select().single();
+      if (error) throw error;
+      setNewWorkerName('');
+      loadWorkers(workerBranch);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setWorkerSaving(false);
+  };
+
+  const toggleWorker = async (worker) => {
+    try {
+      await supabase.from('branch_workers').update({ active: !worker.active }).eq('id', worker.id);
+      setWorkerList(p => p.map(w => w.id === worker.id ? { ...w, active: !w.active } : w));
+    } catch (e) { Alert.alert('Error', e.message); }
+  };
+
+  const deleteWorker = (worker) => {
+    Alert.alert('Remove Worker', `Remove ${worker.name} from ${workerBranch}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        try {
+          await supabase.from('branch_workers').delete().eq('id', worker.id);
+          setWorkerList(p => p.filter(w => w.id !== worker.id));
+        } catch (e) { Alert.alert('Error', e.message); }
+      }},
+    ]);
+  };
+
   /* open/close accordion */
   const [open, setOpen] = useState({
-    branches:false, managers:false, spec:false,
+    branches:false, managers:false, workers:false, spec:false,
     notif:false, financial:false, analytics:false,
     app:false, db:false, security:false, sysinfo:false,
   });
@@ -273,7 +328,67 @@ export default function OwnerSettingsScreen() {
           </Body>
         )}
 
-        {/* ── 3. SPEC SETTINGS ─────────────────────────────── */}
+        {/* ── 3. WORKERS MANAGEMENT ────────────────────────── */}
+        <SH icon="👷" title="Workers Management" sub="Add, remove and manage staff per branch"
+          color="#1565C0" open={open.workers} onPress={()=>{ tog('workers'); if(!open.workers) loadWorkers(workerBranch); }}/>
+        {open.workers && (
+          <Body>
+            {/* Branch selector */}
+            <Text style={s.subheading}>Select Branch</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:12}}>
+              <View style={{flexDirection:'row',gap:6,paddingBottom:4}}>
+                {BRANCHES.map(b => (
+                  <TouchableOpacity key={b.name}
+                    style={[s.wBranchChip, workerBranch===b.name && s.wBranchChipActive]}
+                    onPress={() => { setWorkerBranch(b.name); loadWorkers(b.name); }}
+                    activeOpacity={0.75}>
+                    <Text style={[s.wBranchChipTxt, workerBranch===b.name && {color:'#fff'}]}>{b.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Add worker */}
+            <View style={s.wAddRow}>
+              <TextInput
+                style={s.wNameInput}
+                value={newWorkerName}
+                onChangeText={setNewWorkerName}
+                placeholder="Worker name..."
+                placeholderTextColor="#ccc"
+                onSubmitEditing={addWorker}
+              />
+              <TouchableOpacity style={[s.wAddBtn, workerSaving && {opacity:0.6}]} onPress={addWorker} disabled={workerSaving}>
+                {workerSaving ? <ActivityIndicator size="small" color="#fff"/> : <Text style={s.wAddBtnTxt}>+ Add</Text>}
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.divider}/>
+
+            {/* Worker list */}
+            {workerLoading
+              ? <ActivityIndicator color="#1565C0" style={{marginVertical:16}}/>
+              : workerList.length === 0
+                ? <Text style={s.wEmpty}>No workers added for {workerBranch} yet.</Text>
+                : workerList.map(w => (
+                  <View key={w.id} style={s.wRow}>
+                    <View style={[s.dot, {backgroundColor: w.active ? '#43A047' : '#ccc'}]}/>
+                    <Text style={[s.wName, !w.active && {color:'#aaa', textDecorationLine:'line-through'}]}>{w.name}</Text>
+                    <TouchableOpacity onPress={() => toggleWorker(w)} style={s.wToggleBtn}>
+                      <Text style={[s.wToggleTxt, {color: w.active ? '#E65100' : '#43A047'}]}>
+                        {w.active ? 'Deactivate' : 'Activate'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteWorker(w)} style={s.wDelBtn}>
+                      <Text style={{fontSize:16, color:'#E53935'}}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))
+            }
+          </Body>
+        )}
+
+        {/* ── 4. SPEC SETTINGS ─────────────────────────────── */}
         <SH icon="📦" title="SPEC Settings" sub="Product list, categories, units, pricing"
           color="#6A1B9A" open={open.spec} onPress={()=>tog('spec')}/>
         {open.spec&&(
@@ -488,4 +603,17 @@ const s = StyleSheet.create({
   logoutFull:   { backgroundColor:'#D32F2F', borderRadius:14, paddingVertical:16, alignItems:'center', marginTop:8 },
   logoutFullTxt:{ color:'#fff', fontWeight:'800', fontSize:15 },
   footer:       { textAlign:'center', color:'#bbb', fontSize:11, marginTop:4 },
+  wBranchChip:       { borderRadius:20, borderWidth:1.5, borderColor:'#DDD', backgroundColor:'#fff', paddingHorizontal:13, paddingVertical:7 },
+  wBranchChipActive: { backgroundColor:'#1565C0', borderColor:'#1565C0' },
+  wBranchChipTxt:    { fontSize:12, fontWeight:'700', color:'#555' },
+  wAddRow:           { flexDirection:'row', gap:8, marginBottom:4 },
+  wNameInput:        { flex:1, borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:10, paddingHorizontal:12, paddingVertical:9, fontSize:13, color:'#111', backgroundColor:'#FAFAFA' },
+  wAddBtn:           { backgroundColor:'#1565C0', borderRadius:10, paddingHorizontal:16, paddingVertical:9, justifyContent:'center' },
+  wAddBtnTxt:        { color:'#fff', fontWeight:'800', fontSize:13 },
+  wRow:              { flexDirection:'row', alignItems:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:'#F5F5F5', gap:10 },
+  wName:             { flex:1, fontSize:13, fontWeight:'700', color:'#222' },
+  wToggleBtn:        { paddingHorizontal:8, paddingVertical:4, borderRadius:6, backgroundColor:'#F5F5F5' },
+  wToggleTxt:        { fontSize:11, fontWeight:'700' },
+  wDelBtn:           { paddingHorizontal:4 },
+  wEmpty:            { fontSize:13, color:'#aaa', textAlign:'center', paddingVertical:16 },
 });
