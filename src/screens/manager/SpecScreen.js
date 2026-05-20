@@ -446,7 +446,6 @@ export default function ManagerSpecScreen() {
       });
       await insertSpecOrder({
         branch, date:today, items,
-        estimated_cost: Math.round(estimatedCost),
         supplier_note:  note || null,
         submitted_at:   new Date().toISOString(),
       });

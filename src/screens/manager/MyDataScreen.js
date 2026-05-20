@@ -15,26 +15,50 @@ import { COLORS } from '../../constants';
 import { FALLBACK_PRODUCTS } from '../../lib/products';
 
 /* ─── helpers ───────────────────────────────────────────────── */
+const NAME_KEYS = ['name','Name','kategoria','category','description','title','label','purpose','cel','kat','typ'];
+const AMOUNT_KEYS = ['amount','Amount','kwota','value','sum','total','val'];
+const SKIP_AS_NAME = new Set(['id','date','branch','created_at','custom','isCustom','type','flag','checked','selected','enabled']);
+
 function parseExp(raw) {
   if (!raw) return [];
   let arr = raw;
   if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { return []; } }
   if (!Array.isArray(arr)) {
     if (arr && typeof arr === 'object') {
-      arr = Object.entries(arr).map(([k, v]) => ({ name: k, amount: Number(v) }));
-    } else return [];
-  }
-  return arr.map(e => {
-    const SKIP = new Set(['id','date','branch','created_at','amount','Amount','kwota','value','sum','total','category','cat']);
-    let name = e.name || e.Name || e.kategoria || e.category || e.description || e.title || e.label || e.purpose || e.cel || '';
-    if (!name) {
-      const key = Object.keys(e).find(k => !SKIP.has(k));
-      if (key) name = key;
+      // stored as {Warzywa: 218, Gaz: 546} key-value map
+      return Object.entries(arr)
+        .filter(([k]) => !SKIP_AS_NAME.has(k))
+        .map(([k, v]) => ({ name: k, amount: Number(v) || 0 }))
+        .filter(e => e.amount > 0);
     }
-    let amount = Number(e.amount ?? e.Amount ?? e.kwota ?? e.value ?? e.sum ?? e.total ?? 0);
-    if (!amount && name && !SKIP.has(name)) amount = Number(e[name]) || 0;
-    return { name, amount, category: e.category || e.kategoria || e.cat || '' };
-  });
+    return [];
+  }
+  return arr.map((e, idx) => {
+    if (typeof e !== 'object' || e === null) return null;
+    // try recognised name fields
+    let name = '';
+    for (const k of NAME_KEYS) {
+      if (e[k] && typeof e[k] === 'string' && e[k].trim() && !SKIP_AS_NAME.has(e[k])) {
+        name = e[k].trim();
+        break;
+      }
+    }
+    // try recognised amount fields
+    let amount = 0;
+    for (const k of AMOUNT_KEYS) {
+      if (e[k] !== undefined && e[k] !== null) { amount = Number(e[k]) || 0; if (amount) break; }
+    }
+    // last resort: look for a numeric value among other keys
+    if (!amount) {
+      for (const k of Object.keys(e)) {
+        if (!SKIP_AS_NAME.has(k) && !NAME_KEYS.includes(k)) {
+          const v = Number(e[k]);
+          if (v > 0) { amount = v; break; }
+        }
+      }
+    }
+    return { name: name || `Expense ${idx + 1}`, amount };
+  }).filter(Boolean).filter(e => e.amount > 0);
 }
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtK(n) { if (!n && n !== 0) return '0'; return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
@@ -922,7 +946,7 @@ export default function ManagerMyDataScreen() {
                           <Text style={s.recDate}>{r.date} <Text style={s.recDay}>{dayName(r.date)}</Text></Text>
                           <Text style={[s.recRev, { color: '#D32F2F' }]}>{fmtK(r.total_expenses || 0)} PLN</Text>
                         </View>
-                        <Text style={s.recMeta}>{exps.length} expense{exps.length !== 1 ? 's' : ''}{exps.length > 0 ? ` · ${exps.map(e => e.name || e.category || 'Other').join(', ')}` : ''}</Text>
+                        <Text style={s.recMeta}>{exps.length} expense{exps.length !== 1 ? 's' : ''}{exps.length > 0 ? ` · ${exps.map(e => e.name).join(', ')}` : ''}</Text>
                       </View>
                       <View style={s.recActions}>
                         <TouchableOpacity onPress={() => openEditCF(r)} style={s.editBtn}><Text style={{ fontSize: 14 }}>✏️</Text></TouchableOpacity>
@@ -934,8 +958,8 @@ export default function ManagerMyDataScreen() {
                     <View style={s.expandBody}>
                       {exps.map((e, i) => (
                         <View key={i} style={s.detailRow}>
-                          <Text style={s.detailLbl}>{e.name || e.category || 'Expense'}</Text>
-                          <Text style={[s.detailVal, { color: '#D32F2F' }]}>{fmtK(e.amount || e.kwota)} PLN</Text>
+                          <Text style={s.detailLbl}>{e.name}</Text>
+                          <Text style={[s.detailVal, { color: '#D32F2F' }]}>{fmtK(e.amount)} PLN</Text>
                         </View>
                       ))}
                       {r.notes ? <Text style={s.notesTxt}>📝 {r.notes}</Text> : null}

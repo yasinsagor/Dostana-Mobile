@@ -8,7 +8,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase, insertDailyReport, fetchDailyReports, fetchSpecOrders, fetchBranchWorkers, saveBranchWorkers } from '../../lib/supabase';
+import {
+  supabase, insertDailyReport, fetchDailyReports, fetchSpecOrders,
+  fetchBranchWorkers, saveBranchWorkers, updateDailyReport, updateCashflowReport,
+} from '../../lib/supabase';
 import { COLORS } from '../../constants';
 
 /* ─── constants ─────────────────────────────────────────────── */
@@ -18,8 +21,10 @@ const CF_CATS = ['Warzywa','Cola/Pepsi','Gaz','C2C','Spec','Wynajem','Pracownicy
 
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function yesterdayStr() { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+function prevDayOf(dateStr) { const d=new Date(dateStr); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
 function fmtN(n) { return Math.round(n).toLocaleString(); }
 function n(v) { return parseFloat(v)||0; }
+function blankCfCats() { return CF_CATS.map(name=>({name,amount:''})); }
 
 /* ─── sub-components ────────────────────────────────────────── */
 function SectionCard({ title, color=COLORS.primary, children }) {
@@ -70,8 +75,16 @@ export default function ManagerSubmitScreen() {
   const { user } = useAuth();
   const navigation = useNavigation();
   const branch = user?.branch || '';
-  const today = todayStr();
-  const draftKey = `submit_draft_${branch}_${today}`;
+
+  /* ── date selection ── */
+  const [selectedDate, setSelectedDate] = useState(todayStr());
+  const isToday = selectedDate === todayStr();
+
+  const draftKey = `submit_draft_${branch}_${selectedDate}`;
+
+  /* ── existing record IDs (set when editing) ── */
+  const [drId, setDrId] = useState(null);
+  const [cfId, setCfId] = useState(null);
 
   /* ── form state ── */
   const [revenue,   setRevenue]   = useState('');
@@ -79,7 +92,7 @@ export default function ManagerSubmitScreen() {
   const [cash,      setCash]      = useState('');
   const [workers,   setWorkers]   = useState([{ name: '', hours: '' }]);
   const [platforms, setPlatforms] = useState({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', restaumatic:'' });
-  const [cfCats,    setCfCats]    = useState(CF_CATS.map(name=>({name,amount:''})));
+  const [cfCats,    setCfCats]    = useState(blankCfCats());
   const [noteType,  setNoteType]  = useState('general');
   const [notes,     setNotes]     = useState('');
 
@@ -87,25 +100,30 @@ export default function ManagerSubmitScreen() {
   const [drSubmitted,  setDrSubmitted]  = useState(false);
   const [cfSubmitted,  setCfSubmitted]  = useState(false);
   const [specDone,     setSpecDone]     = useState(false);
-  const [yesterdayRev, setYesterdayRev] = useState(0);
+  const [prevDayRev,   setPrevDayRev]   = useState(0);
   const [saving,       setSaving]       = useState(false);
   const [submitted,    setSubmitted]    = useState(false);
   const [draftLoaded,  setDraftLoaded]  = useState(false);
   const autoSaveTimer = useRef(null);
 
-  /* ── load worker names from DB (persisted across days & devices) ── */
-  useEffect(() => {
-    fetchBranchWorkers(branch).then(names => {
-      if (names.length > 0) setWorkers(names.map(name => ({ name, hours: '' })));
-    }).catch(() => {
-      // fallback to AsyncStorage
-      AsyncStorage.getItem(`workers_${branch}`).then(raw => {
-        if (raw) setWorkers(JSON.parse(raw).map(name => ({ name, hours: '' })));
-      }).catch(() => {});
-    });
-  }, [branch]);
+  /* ── reset form when date changes ── */
+  function resetForm() {
+    setRevenue(''); setCard(''); setCash('');
+    setWorkers([{ name: '', hours: '' }]);
+    setPlatforms({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', restaumatic:'' });
+    setCfCats(blankCfCats());
+    setNotes(''); setNoteType('general');
+    setDrId(null); setCfId(null);
+    setDrSubmitted(false); setCfSubmitted(false); setSpecDone(false);
+    setDraftLoaded(false);
+  }
 
-  /* save worker names to DB + AsyncStorage whenever they change */
+  function switchDate(date) {
+    resetForm();
+    setSelectedDate(date);
+  }
+
+  /* save worker names to DB whenever they change (names only, not hours) */
   useEffect(() => {
     const names = workers.map(w => w.name).filter(Boolean);
     if (!names.length) return;
@@ -113,58 +131,140 @@ export default function ManagerSubmitScreen() {
     AsyncStorage.setItem(`workers_${branch}`, JSON.stringify(names)).catch(() => {});
   }, [workers, branch]);
 
-  /* ── load draft + check existing submissions ── */
+  /* ── load data for selected date ── */
   useEffect(() => {
     async function init() {
-      // load draft
+      // 1. Load worker names from DB (canonical list for branch)
+      let workerList = [];
       try {
-        const raw = await AsyncStorage.getItem(draftKey);
-        if (raw) {
-          const d = JSON.parse(raw);
-          if (d.revenue)   setRevenue(d.revenue);
-          if (d.card)      setCard(d.card);
-          if (d.cash)      setCash(d.cash);
-          if (d.workers)   setWorkers(d.workers);
-          else if (d.hours) setWorkers([{ name: '', hours: d.hours }]);
-          if (d.platforms) setPlatforms(d.platforms);
-          if (d.cfCats)    setCfCats(d.cfCats);
-          if (d.notes)     setNotes(d.notes);
-          if (d.noteType)  setNoteType(d.noteType);
-        }
-      } catch {}
-      setDraftLoaded(true);
+        const names = await fetchBranchWorkers(branch);
+        if (names.length > 0) workerList = names.map(name => ({ name, hours: '' }));
+      } catch {
+        try {
+          const raw = await AsyncStorage.getItem(`workers_${branch}`);
+          if (raw) workerList = JSON.parse(raw).map(name => ({ name, hours: '' }));
+        } catch {}
+      }
 
-      // check existing submissions
+      // 2. Fetch existing reports for selectedDate
+      let drRecord = null, cfRecord = null;
       try {
         const [{ data:dr }, { data:cf }, { data:sp }] = await Promise.all([
-          supabase.from('daily_reports').select('id').eq('branch',branch).eq('date',today).limit(1),
-          supabase.from('cashflow_reports').select('id').eq('branch',branch).eq('date',today).limit(1),
-          supabase.from('spec_orders').select('id').eq('branch',branch).eq('date',today).limit(1),
+          supabase.from('daily_reports').select('*').eq('branch',branch).eq('date',selectedDate).limit(1),
+          supabase.from('cashflow_reports').select('*').eq('branch',branch).eq('date',selectedDate).limit(1),
+          supabase.from('spec_orders').select('id').eq('branch',branch).eq('date',selectedDate).limit(1),
         ]);
-        setDrSubmitted(!!(dr && dr.length));
-        setCfSubmitted(!!(cf && cf.length));
+        drRecord = dr && dr[0] ? dr[0] : null;
+        cfRecord = cf && cf[0] ? cf[0] : null;
+        setDrSubmitted(!!drRecord);
+        setCfSubmitted(!!cfRecord);
         setSpecDone(!!(sp && sp.length));
       } catch {}
 
-      // yesterday revenue
+      if (drRecord) {
+        // Editing existing daily report — populate form from DB
+        setDrId(drRecord.id);
+        setRevenue(String(drRecord.total_revenue || drRecord.revenue || ''));
+        setCard(String(drRecord.card || ''));
+        setCash(String(drRecord.cash || ''));
+
+        // Merge existing report hours into worker list
+        try {
+          const wh = typeof drRecord.workers_hours === 'string'
+            ? JSON.parse(drRecord.workers_hours)
+            : drRecord.workers_hours;
+          if (Array.isArray(wh) && wh.length > 0) {
+            // Update hours for known workers
+            let merged = workerList.map(w => {
+              const found = wh.find(x => x.name === w.name);
+              return found ? { ...w, hours: String(found.hours || '') } : w;
+            });
+            // Add workers from report not in branch list
+            wh.forEach(x => {
+              if (x.name && !merged.find(w => w.name === x.name)) {
+                merged.push({ name: x.name, hours: String(x.hours || '') });
+              }
+            });
+            workerList = merged;
+          }
+        } catch {}
+
+        // Populate platforms
+        const pObj = {};
+        PLATFORMS.forEach(p => { pObj[p] = String(drRecord[p] || ''); });
+        setPlatforms(pObj);
+
+        if (drRecord.notes) {
+          const noteMatch = drRecord.notes.match(/^\[(\w+)\] ([\s\S]*)$/);
+          if (noteMatch) { setNoteType(noteMatch[1].toLowerCase()); setNotes(noteMatch[2]); }
+          else setNotes(drRecord.notes);
+        }
+      } else {
+        // New report — try to restore draft
+        try {
+          const raw = await AsyncStorage.getItem(draftKey);
+          if (raw) {
+            const d = JSON.parse(raw);
+            if (d.revenue)   setRevenue(d.revenue);
+            if (d.card)      setCard(d.card);
+            if (d.cash)      setCash(d.cash);
+            if (d.workers)   workerList = d.workers;
+            else if (d.hours) workerList = [{ name: '', hours: d.hours }];
+            if (d.platforms) setPlatforms(d.platforms);
+            if (d.cfCats)    setCfCats(d.cfCats);
+            if (d.notes)     setNotes(d.notes);
+            if (d.noteType)  setNoteType(d.noteType);
+          }
+        } catch {}
+      }
+
+      if (cfRecord) {
+        setCfId(cfRecord.id);
+        try {
+          const expenses = typeof cfRecord.expenses === 'string'
+            ? JSON.parse(cfRecord.expenses)
+            : cfRecord.expenses;
+          if (Array.isArray(expenses) && expenses.length > 0) {
+            const base = CF_CATS.map(name => {
+              const found = expenses.find(e => e.name === name);
+              return { name, amount: found ? String(found.amount || '') : '' };
+            });
+            const custom = expenses
+              .filter(e => !CF_CATS.includes(e.name))
+              .map(e => ({ name: e.name || '', amount: String(e.amount || '') }));
+            setCfCats([...base, ...custom]);
+          }
+        } catch {}
+        if (!drRecord && cfRecord.notes) setNotes(cfRecord.notes);
+      }
+
+      if (workerList.length > 0) setWorkers(workerList);
+      else setWorkers([{ name: '', hours: '' }]);
+
+      // Previous day's revenue for comparison
       try {
+        const prevDate = prevDayOf(selectedDate);
         const { data } = await supabase.from('daily_reports')
-          .select('total_revenue,revenue').eq('branch',branch).eq('date',yesterdayStr()).limit(1);
-        if (data && data[0]) setYesterdayRev(data[0].total_revenue || data[0].revenue || 0);
+          .select('total_revenue,revenue').eq('branch',branch).eq('date',prevDate).limit(1);
+        if (data && data[0]) setPrevDayRev(data[0].total_revenue || data[0].revenue || 0);
+        else setPrevDayRev(0);
       } catch {}
+
+      setDraftLoaded(true);
     }
     init();
-  }, [branch, today, draftKey]);
+  }, [branch, selectedDate]);
 
-  /* ── auto-save draft ── */
+  /* ── auto-save draft (only for new reports, not edits) ── */
   const autoSave = useCallback(() => {
+    if (drId) return; // don't auto-save drafts when editing existing record
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       try {
         await AsyncStorage.setItem(draftKey, JSON.stringify({ revenue, card, cash, workers, platforms, cfCats, notes, noteType }));
       } catch {}
     }, 800);
-  }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftKey]);
+  }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftKey, drId]);
 
   useEffect(() => { if (draftLoaded) autoSave(); }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftLoaded]);
 
@@ -177,7 +277,7 @@ export default function ManagerSubmitScreen() {
   const splitSum      = cardN + cashN + totalDelivery;
   const splitMismatch = rev > 0 && Math.abs(rev - splitSum) > 50;
   const deliveryPct   = rev > 0 ? Math.round(totalDelivery/rev*100) : 0;
-  const diffPct       = yesterdayRev>0 && rev>0 ? Math.round((rev-yesterdayRev)/yesterdayRev*100) : null;
+  const diffPct       = prevDayRev>0 && rev>0 ? Math.round((rev-prevDayRev)/prevDayRev*100) : null;
 
   const cfFilled   = cfCats.filter(e=>e.name&&n(e.amount)>0);
   const totalCF    = cfFilled.reduce((s,e)=>s+n(e.amount),0);
@@ -185,12 +285,11 @@ export default function ManagerSubmitScreen() {
   const laborCost  = hoursN * 22;
   const revPerHour = hoursN > 0 ? Math.round(rev/hoursN) : 0;
 
-  /* big platform for concentration warning */
   const bigPlatform = PLATFORMS.find(p => rev>0 && n(platforms[p])/rev > 0.35);
-
-  /* inne > 100 without description check */
   const inneRow  = cfCats.find(e=>e.name==='Inne');
   const inneWarn = inneRow && n(inneRow.amount) > 100;
+
+  const isEditMode = !!(drId || cfId);
 
   /* ── quick add CF expense ── */
   const quickAdd = (name) => {
@@ -212,8 +311,7 @@ export default function ManagerSubmitScreen() {
     if (cfFilled.length === 0) errs.push('• Cash Flow: enter at least one expense');
     if (inneWarn) errs.push('• "Inne" expense >100 PLN — add a description in Notes');
     if (hoursN > workers.length * 14) errs.push(`• Total hours (${hoursN}h) seem high for ${workers.length} worker(s) — double check`);
-    if (drSubmitted) errs.push('• Daily report already submitted today');
-    if (cfSubmitted) errs.push('• Cash flow already submitted today');
+    // No "already submitted" block — edit mode allows updating
     return errs;
   }
 
@@ -223,7 +321,7 @@ export default function ManagerSubmitScreen() {
     if (errs.length) {
       Alert.alert('⚠️ Check Before Submit', errs.join('\n'), [
         { text:'Fix Issues', style:'cancel' },
-        { text:'Submit Anyway', style:'destructive', onPress: doSubmit },
+        { text: isEditMode ? 'Update Anyway' : 'Submit Anyway', style:'destructive', onPress: doSubmit },
       ]);
       return;
     }
@@ -233,33 +331,44 @@ export default function ManagerSubmitScreen() {
   async function doSubmit() {
     setSaving(true);
     try {
-      // 1. Daily report
-      if (!drSubmitted) {
-        const report = {
-          branch, date:today,
-          revenue: rev, card: cardN, cash: cashN, hours: hoursN, total_hours: hoursN,
-          workers_hours: JSON.stringify(workers.filter(w => n(w.hours) > 0)),
-          total_delivery: totalDelivery,
-          total_revenue: rev,
-          total_expenses: totalCF,
-          net_profit: netProfit,
-          notes: `[${noteType.toUpperCase()}] ${notes}`,
-          ...Object.fromEntries(PLATFORMS.map(p=>[p,n(platforms[p])])),
-          wydatki: JSON.stringify(cfFilled),
-        };
-        await insertDailyReport(report);
-      }
+      const reportData = {
+        branch, date: selectedDate,
+        revenue: rev, card: cardN, cash: cashN, hours: hoursN, total_hours: hoursN,
+        workers_hours: JSON.stringify(workers.filter(w => n(w.hours) > 0)),
+        total_delivery: totalDelivery,
+        total_revenue: rev,
+        total_expenses: totalCF,
+        net_profit: netProfit,
+        notes: `[${noteType.toUpperCase()}] ${notes}`,
+        ...Object.fromEntries(PLATFORMS.map(p=>[p,n(platforms[p])])),
+        wydatki: JSON.stringify(cfFilled),
+      };
 
-      // 2. Cash flow
-      if (!cfSubmitted) {
-        await supabase.from('cashflow_reports').insert([{
-          branch, date:today,
-          expenses: cfFilled,
-          total_expenses: totalCF,
-          balance: rev - totalCF,
-          notes: notes || null,
-        }]);
+      // 1. Daily report — update if exists, insert if new
+      if (drId) {
+        await updateDailyReport(drId, reportData);
+      } else {
+        const inserted = await insertDailyReport(reportData);
+        if (inserted && inserted[0]) setDrId(inserted[0].id);
       }
+      setDrSubmitted(true);
+
+      const cfData = {
+        branch, date: selectedDate,
+        expenses: cfFilled,
+        total_expenses: totalCF,
+        balance: rev - totalCF,
+        notes: notes || null,
+      };
+
+      // 2. Cash flow — update if exists, insert if new
+      if (cfId) {
+        await updateCashflowReport(cfId, cfData);
+      } else {
+        const { data: cfInserted } = await supabase.from('cashflow_reports').insert([cfData]).select('id');
+        if (cfInserted && cfInserted[0]) setCfId(cfInserted[0].id);
+      }
+      setCfSubmitted(true);
 
       // clear draft
       await AsyncStorage.removeItem(draftKey);
@@ -275,10 +384,10 @@ export default function ManagerSubmitScreen() {
     const margin = rev > 0 ? Math.round((rev-totalCF)/rev*100) : 0;
     return (
       <SafeAreaView style={s.safe}>
-        <View style={s.successHeader}>
-          <Text style={s.successEmoji}>🎉</Text>
-          <Text style={s.successTitle}>Report Submitted!</Text>
-          <Text style={s.successBranch}>{branch} · {today}</Text>
+        <View style={[s.successHeader, isEditMode && { backgroundColor: '#1565C0' }]}>
+          <Text style={s.successEmoji}>{isEditMode ? '✏️' : '🎉'}</Text>
+          <Text style={s.successTitle}>{isEditMode ? 'Report Updated!' : 'Report Submitted!'}</Text>
+          <Text style={s.successBranch}>{branch} · {selectedDate}</Text>
         </View>
         <ScrollView contentContainerStyle={{padding:20,gap:12}}>
           {[
@@ -287,19 +396,26 @@ export default function ManagerSubmitScreen() {
             { label:'Net Profit',  value:`${fmtN(netProfit)} PLN`, color: netProfit>=0?'#2E7D32':COLORS.danger },
             { label:'Margin',      value:`${margin}%`,            color:margin>15?'#2E7D32':margin>8?COLORS.warning:COLORS.danger },
             { label:'Hours',       value:hoursN>0?`${hoursN}h (${workers.filter(w=>n(w.hours)>0).length} workers)`:'—', color:'#555' },
-            { label:'vs Yesterday',value:diffPct!==null?`${diffPct>0?'+':''}${diffPct}%`:'—', color:diffPct>=0?COLORS.primary:COLORS.danger },
+            { label:'vs Prev Day', value:diffPct!==null?`${diffPct>0?'+':''}${diffPct}%`:'—', color:diffPct>=0?COLORS.primary:COLORS.danger },
           ].map((r,i)=>(
             <View key={i} style={s.succRow}>
               <Text style={s.succLabel}>{r.label}</Text>
               <Text style={[s.succVal,{color:r.color}]}>{r.value}</Text>
             </View>
           ))}
-          {!specDone && (
+          {!specDone && isToday && (
             <TouchableOpacity style={s.specReminder} onPress={()=>navigation.navigate('SPEC Order')} activeOpacity={0.8}>
               <Text style={s.specReminderTxt}>📦 SPEC order not submitted yet — tap to submit now →</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={s.newBtn} onPress={()=>{ setSubmitted(false); setRevenue(''); setCard(''); setCash(''); setWorkers(w=>w.map(x=>({...x,hours:''}))); setNotes(''); setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',restaumatic:''}); setCfCats(CF_CATS.map(n=>({name:n,amount:''}))); }}>
+          <TouchableOpacity style={s.newBtn} onPress={()=>{
+            setSubmitted(false);
+            setRevenue(''); setCard(''); setCash('');
+            setWorkers(w=>w.map(x=>({...x,hours:''})));
+            setNotes('');
+            setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',restaumatic:''});
+            setCfCats(blankCfCats());
+          }}>
             <Text style={s.newBtnTxt}>Submit New Report</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -308,13 +424,39 @@ export default function ManagerSubmitScreen() {
   }
 
   /* ── main form ── */
+  const submitLabel = isEditMode
+    ? (saving ? null : '✏️ Update Report')
+    : (saving ? null : (drSubmitted && cfSubmitted ? '✅ Already Submitted' : 'Submit Report'));
+
   return (
     <SafeAreaView style={s.safe}>
       {/* Header */}
       <View style={s.header}>
         <View style={{flex:1}}>
           <Text style={s.headerTitle}>📤 {branch}</Text>
-          <Text style={s.headerSub}>{new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'})} · {draftLoaded?'Draft restored':'Ready'}</Text>
+          <View style={{flexDirection:'row', alignItems:'center', gap:8, marginTop:4}}>
+            {/* Date toggle */}
+            <TouchableOpacity
+              style={[s.dateBtn, isToday && s.dateBtnActive]}
+              onPress={() => switchDate(todayStr())}
+              activeOpacity={0.7}
+            >
+              <Text style={[s.dateBtnTxt, isToday && s.dateBtnTxtActive]}>Today</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.dateBtn, !isToday && s.dateBtnActive]}
+              onPress={() => switchDate(yesterdayStr())}
+              activeOpacity={0.7}
+            >
+              <Text style={[s.dateBtnTxt, !isToday && s.dateBtnTxtActive]}>Yesterday</Text>
+            </TouchableOpacity>
+            {isEditMode && (
+              <View style={s.editBadge}>
+                <Text style={s.editBadgeTxt}>EDIT MODE</Text>
+              </View>
+            )}
+          </View>
+          <Text style={s.headerSub}>{selectedDate} · {draftLoaded ? (isEditMode ? 'Loaded from DB' : 'Draft restored') : 'Loading...'}</Text>
         </View>
         {/* submission status chips */}
         <View style={{gap:3}}>
@@ -336,7 +478,7 @@ export default function ManagerSubmitScreen() {
           {/* ── REVENUE ── */}
           <SectionCard title="💰 Revenue" color={COLORS.primary}>
             <NumInput label="Total Revenue (PLN)" value={revenue} onChange={setRevenue}
-              warning={rev>0&&diffPct!==null?`${diffPct>0?'+':''}${diffPct}% vs yesterday (${fmtN(yesterdayRev)} PLN)`:undefined}/>
+              warning={rev>0&&diffPct!==null?`${diffPct>0?'+':''}${diffPct}% vs prev day (${fmtN(prevDayRev)} PLN)`:undefined}/>
             <NumInput label="Card Payments" value={card} onChange={setCard}/>
             <NumInput label="Cash Payments" value={cash} onChange={setCash}/>
             {splitMismatch && (
@@ -400,7 +542,6 @@ export default function ManagerSubmitScreen() {
 
           {/* ── CASH FLOW EXPENSES ── */}
           <SectionCard title="🧾 Cash Flow Expenses" color="#D32F2F">
-            {/* Quick add chips */}
             <Text style={s.quickLabel}>Quick Add:</Text>
             <View style={s.quickRow}>
               {['Warzywa','Cola/Pepsi','Gaz','C2C','Cleaning','Naprawy'].map(q=>(
@@ -442,18 +583,20 @@ export default function ManagerSubmitScreen() {
           </SectionCard>
 
           {/* ── SPEC STATUS ── */}
-          <SectionCard title="📦 SPEC Status" color="#6A1B9A">
-            {specDone ? (
-              <View style={s.specDone}><Text style={s.specDoneTxt}>✅ SPEC order submitted for today</Text></View>
-            ) : (
-              <View>
-                <View style={s.specPending}><Text style={s.specPendingTxt}>❌ SPEC order not yet submitted today</Text></View>
-                <TouchableOpacity style={s.specBtn} onPress={()=>navigation.navigate('SPEC Order')} activeOpacity={0.8}>
-                  <Text style={s.specBtnTxt}>Go to SPEC Order →</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </SectionCard>
+          {isToday && (
+            <SectionCard title="📦 SPEC Status" color="#6A1B9A">
+              {specDone ? (
+                <View style={s.specDone}><Text style={s.specDoneTxt}>✅ SPEC order submitted for today</Text></View>
+              ) : (
+                <View>
+                  <View style={s.specPending}><Text style={s.specPendingTxt}>❌ SPEC order not yet submitted today</Text></View>
+                  <TouchableOpacity style={s.specBtn} onPress={()=>navigation.navigate('SPEC Order')} activeOpacity={0.8}>
+                    <Text style={s.specBtnTxt}>Go to SPEC Order →</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </SectionCard>
+          )}
 
           {/* ── NOTES ── */}
           <SectionCard title="📝 Notes & Handover" color="#E65100">
@@ -473,13 +616,12 @@ export default function ManagerSubmitScreen() {
             />
           </SectionCard>
 
-          {/* spacer for sticky bar */}
           <View style={{height:100}}/>
         </ScrollView>
       </KeyboardAvoidingView>
 
       {/* ── STICKY BOTTOM BAR ── */}
-      <View style={s.stickyBar}>
+      <View style={[s.stickyBar, isEditMode && {backgroundColor:'#1A237E'}]}>
         <View style={s.stickyStats}>
           <View style={s.stickyStat}>
             <Text style={s.stickyStatLbl}>Revenue</Text>
@@ -496,10 +638,15 @@ export default function ManagerSubmitScreen() {
             <Text style={[s.stickyStatVal,{color:netProfit>=0?'#A5D6A7':'#EF9A9A'}]}>{fmtN(netProfit)}</Text>
           </View>
         </View>
-        <TouchableOpacity style={[s.submitBtn,{opacity:saving?0.7:1}]} onPress={handleSubmit} disabled={saving} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={[s.submitBtn, isEditMode && s.updateBtn, {opacity:saving?0.7:1}]}
+          onPress={handleSubmit}
+          disabled={saving}
+          activeOpacity={0.85}
+        >
           {saving
             ? <ActivityIndicator color="#fff" size="small"/>
-            : <Text style={s.submitTxt}>{drSubmitted&&cfSubmitted?'✅ Already Submitted':'Submit Report'}</Text>
+            : <Text style={s.submitTxt}>{submitLabel}</Text>
           }
         </TouchableOpacity>
       </View>
@@ -513,6 +660,12 @@ const s = StyleSheet.create({
   header:          { backgroundColor:'#fff', paddingHorizontal:16, paddingVertical:12, flexDirection:'row', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#EEE' },
   headerTitle:     { fontSize:16, fontWeight:'800', color:'#222' },
   headerSub:       { fontSize:11, color:'#aaa', marginTop:2 },
+  dateBtn:         { paddingHorizontal:12, paddingVertical:4, borderRadius:20, borderWidth:1.5, borderColor:'#E0E0E0', backgroundColor:'#F5F5F5' },
+  dateBtnActive:   { backgroundColor:COLORS.primary, borderColor:COLORS.primary },
+  dateBtnTxt:      { fontSize:11, fontWeight:'700', color:'#888' },
+  dateBtnTxtActive:{ color:'#fff' },
+  editBadge:       { backgroundColor:'#1565C0', borderRadius:6, paddingHorizontal:8, paddingVertical:3 },
+  editBadgeTxt:    { fontSize:9, fontWeight:'900', color:'#fff', letterSpacing:1 },
   chip:            { borderRadius:6, paddingHorizontal:8, paddingVertical:3 },
   chipDone:        { backgroundColor:'#E8F5E9' },
   chipPending:     { backgroundColor:'#FFEBEE' },
@@ -554,6 +707,7 @@ const s = StyleSheet.create({
   stickyStatVal:   { fontSize:15, fontWeight:'900', color:'#fff', marginTop:1 },
   stickySeparator: { width:1, height:30, backgroundColor:'rgba(255,255,255,0.15)', marginHorizontal:4 },
   submitBtn:       { backgroundColor:COLORS.primary, borderRadius:12, paddingHorizontal:18, paddingVertical:13 },
+  updateBtn:       { backgroundColor:'#1565C0' },
   submitTxt:       { color:'#fff', fontWeight:'900', fontSize:13 },
   successHeader:   { backgroundColor:COLORS.primary, padding:30, alignItems:'center' },
   successEmoji:    { fontSize:50, marginBottom:10 },
