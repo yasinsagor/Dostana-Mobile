@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, TextInput, Alert, ActivityIndicator, RefreshControl,
+  Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -154,6 +154,40 @@ export default function ManagerScheduleScreen() {
     ]);
   }
 
+  /* share schedule */
+  async function shareSchedule() {
+    if (shifts.length === 0) { Alert.alert('No shifts', 'Add shifts before sharing.'); return; }
+    const lines = [];
+    lines.push(`📅 *DOSTANA KEBAB — ${branch}*`);
+    lines.push(`Week: ${fmtShort(days[0].iso)} – ${fmtShort(days[6].iso)} ${weekStart.getFullYear()}`);
+    lines.push('━━━━━━━━━━━━━━━━━━━━');
+    days.forEach(day => {
+      const dayShifts = shifts.filter(sh => sh.day_index === day.index);
+      if (dayShifts.length === 0) return;
+      lines.push(`\n*${day.full} ${fmtShort(day.iso)}*`);
+      dayShifts.forEach(sh => {
+        const hrs = calcHours(sh.shift_start, sh.shift_end);
+        let line = `  • ${sh.staff_name}: ${sh.shift_start}–${sh.shift_end} (${fmtHrs(hrs)})`;
+        if (sh.role) line += ` · ${sh.role}`;
+        if (sh.note) line += `\n    📝 ${sh.note}`;
+        lines.push(line);
+      });
+    });
+    lines.push('\n━━━━━━━━━━━━━━━━━━━━');
+    // staff totals
+    const totals = {};
+    shifts.forEach(sh => { totals[sh.staff_name] = (totals[sh.staff_name]||0) + calcHours(sh.shift_start, sh.shift_end); });
+    const totalLines = Object.entries(totals).sort((a,b)=>b[1]-a[1]).map(([n,h])=>`  ${n}: ${fmtHrs(h)}`);
+    if (totalLines.length > 0) {
+      lines.push('*Weekly Hours:*');
+      lines.push(...totalLines);
+    }
+    const message = lines.join('\n');
+    try {
+      await Share.share({ message, title: `Schedule — ${branch}` });
+    } catch (e) { Alert.alert('Share failed', e.message); }
+  }
+
   /* weekly summary */
   const staffHours = {};
   shifts.forEach(sh => {
@@ -174,18 +208,18 @@ export default function ManagerScheduleScreen() {
     <SafeAreaView style={s.safe}>
       {/* Header */}
       <View style={s.header}>
-        <View>
-          <Text style={s.title}>📅 Schedule</Text>
-          <Text style={s.sub}>{branch}</Text>
-        </View>
         <View style={s.weekNav}>
           <TouchableOpacity onPress={prevWeek} style={s.navBtn}><Text style={s.navTxt}>‹</Text></TouchableOpacity>
           <View style={{alignItems:'center'}}>
             <Text style={s.weekTxt}>{fmtShort(days[0].iso)} – {fmtShort(days[6].iso)}</Text>
-            <Text style={s.yearTxt}>{weekStart.getFullYear()}</Text>
+            <Text style={s.yearTxt}>{branch} · {weekStart.getFullYear()}</Text>
           </View>
           <TouchableOpacity onPress={nextWeek} style={s.navBtn}><Text style={s.navTxt}>›</Text></TouchableOpacity>
         </View>
+        <TouchableOpacity onPress={shareSchedule} style={s.shareBtn} activeOpacity={0.8}>
+          <Text style={{fontSize:16}}>📤</Text>
+          <Text style={s.shareTxt}>Share</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -302,9 +336,9 @@ const s = StyleSheet.create({
   safe:           { flex:1, backgroundColor:'#F4F6F8' },
   center:         { flex:1, justifyContent:'center', alignItems:'center' },
   header:         { backgroundColor:'#fff', paddingHorizontal:16, paddingVertical:12, flexDirection:'row', alignItems:'center', justifyContent:'space-between', borderBottomWidth:1, borderBottomColor:'#EEE' },
-  title:          { fontSize:17, fontWeight:'900', color:'#222' },
-  sub:            { fontSize:11, color:'#aaa', marginTop:2 },
-  weekNav:        { flexDirection:'row', alignItems:'center', gap:6 },
+  weekNav:        { flexDirection:'row', alignItems:'center', gap:6, flex:1 },
+  shareBtn:       { flexDirection:'row', alignItems:'center', gap:5, backgroundColor:COLORS.primary, borderRadius:10, paddingHorizontal:12, paddingVertical:8 },
+  shareTxt:       { color:'#fff', fontWeight:'800', fontSize:12 },
   navBtn:         { width:32, height:32, borderRadius:16, backgroundColor:'#F0F0F0', alignItems:'center', justifyContent:'center' },
   navTxt:         { fontSize:20, color:COLORS.primary, fontWeight:'700', lineHeight:24 },
   weekTxt:        { fontSize:13, fontWeight:'800', color:'#333' },
