@@ -34,6 +34,45 @@ function extractItems(items) {
   return {};
 }
 
+function parseWorkersHours(raw) {
+  if (!raw) return [];
+  try {
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(arr)) return [];
+    return arr.map(w => ({ name: w.name || 'Worker', hours: Number(w.hours) || 0 })).filter(w => w.hours > 0);
+  } catch { return []; }
+}
+
+function buildAIAnalysis(sorted, daysElapsed, avgRev, avgRPH) {
+  if (sorted.length === 0) return null;
+  const top = sorted[0];
+  const bottom = sorted[sorted.length - 1];
+
+  const reasons = sorted.map((b, idx) => {
+    const pts = [];
+    if (b.revenue >= avgRev * 1.2) pts.push(`revenue ${Math.round((b.revenue/avgRev-1)*100)}% above chain avg`);
+    else if (b.revenue >= avgRev * 0.9) pts.push(`revenue near chain avg`);
+    else pts.push(`revenue ${Math.round((1-b.revenue/avgRev)*100)}% below chain avg`);
+
+    if (b.missingReports > 3) pts.push(`${b.missingReports} missing reports`);
+    else if (b.missingReports === 0) pts.push('full reporting compliance');
+
+    if (b.rph > 0 && avgRPH > 0) {
+      if (b.rph >= avgRPH * 1.1) pts.push(`high labor efficiency (${Math.round(b.rph)} PLN/hr)`);
+      else if (b.rph < avgRPH * 0.85) pts.push(`low labor efficiency (${Math.round(b.rph)} PLN/hr)`);
+    }
+    if (b.specPct > 15) pts.push(`SPEC cost too high (${b.specPct.toFixed(1)}%)`);
+    else if (b.specPct > 0 && b.specPct <= 10) pts.push(`lean SPEC cost (${b.specPct.toFixed(1)}%)`);
+
+    if (b.estProfit < 0) pts.push('estimated loss this month');
+    else if (b.revenue > 0 && b.estProfit / b.revenue > 0.25) pts.push(`strong margin (${Math.round(b.estProfit/b.revenue*100)}%)`);
+
+    return { name: b.name, pts, rank: idx + 1 };
+  });
+
+  return { top, bottom, reasons };
+}
+
 export default function OwnerPerformanceScreen() {
   const now = new Date();
   const [selM, setSelM] = useState(now.getMonth()+1);
@@ -87,7 +126,18 @@ export default function OwnerPerformanceScreen() {
     const revGrowth = lastRev>0 ? (revenue-lastRev)/lastRev*100 : null;
     const cfExpenses = bCF.reduce((s,r) => s+(r.total_expenses||r.total||0), 0);
     const netProfit = bR.reduce((s,r) => s+(r.net_profit||0), 0);
-    const hours = bR.reduce((s,r) => s+(r.hours||0), 0);
+
+    // Aggregate per-worker hours from workers_hours JSON; fall back to legacy hours field
+    const workerHoursMap = {};
+    bR.forEach(r => {
+      const wh = parseWorkersHours(r.workers_hours);
+      if (wh.length > 0) {
+        wh.forEach(w => { workerHoursMap[w.name] = (workerHoursMap[w.name] || 0) + w.hours; });
+      }
+    });
+    const workerHours = Object.entries(workerHoursMap).map(([name, hours]) => ({ name, hours })).sort((a,b) => b.hours - a.hours);
+    const hoursFromWorkers = workerHours.reduce((s, w) => s + w.hours, 0);
+    const hours = hoursFromWorkers > 0 ? hoursFromWorkers : bR.reduce((s,r) => s+(r.hours||0), 0);
     const rph = hours>0 ? revenue/hours : 0;
     const delivery = bR.reduce((s,r) => s+(r.total_delivery||0), 0);
     const deliveryPct = revenue>0 ? delivery/revenue*100 : 0;
@@ -112,7 +162,7 @@ export default function OwnerPerformanceScreen() {
     if (netProfit<0) warnings.push('Negative profit this month');
     if (cfExpenses===0 && reportCount>0) warnings.push('No cash flow records submitted');
 
-    return { name:b.name, revenue, todayRev, lastRev, revGrowth, cfExpenses, netProfit, estProfit:revenue-cfExpenses-specCost, hours, rph, delivery, deliveryPct, specCost, specPct, chickenQty, lambQty, reportCount, missingReports, warnings, score:0 };
+    return { name:b.name, revenue, todayRev, lastRev, revGrowth, cfExpenses, netProfit, estProfit:revenue-cfExpenses-specCost, hours, workerHours, rph, delivery, deliveryPct, specCost, specPct, chickenQty, lambQty, reportCount, missingReports, warnings, score:0 };
   });
 
   const active = branchStats.filter(b => b.reportCount>0);
@@ -133,7 +183,7 @@ export default function OwnerPerformanceScreen() {
     b.score=Math.min(100,sc);
   });
 
-  const sorted = [...branchStats].filter(b=>b.reportCount>0).sort((a,b)=>b.score-a.score);
+  const sorted = [...branchStats].filter(b=>b.reportCount>0).sort((a,b)=>b.revenue-a.revenue);
   const totalRev = active.reduce((s,b)=>s+b.revenue,0);
   const medals=['🥇','🥈','🥉'];
   const toggle = name => setExpanded(p => p===name ? null : name);
@@ -178,10 +228,71 @@ export default function OwnerPerformanceScreen() {
 
         {sorted.length===0 && <View style={s.empty}><Text style={s.emptyTxt}>No data for {MONTHS[selM-1]} {selY}</Text></View>}
 
+        {sorted.length > 0 && (() => {
+          const ai = buildAIAnalysis(sorted, daysElapsed, avgRev, avgRPH);
+          if (!ai) return null;
+          return (
+            <View style={s.aiCard}>
+              <View style={s.aiHeader}>
+                <View style={s.aiBadge}><Text style={s.aiBadgeTxt}>AI</Text></View>
+                <Text style={s.aiTitle}>Ranking Analysis</Text>
+              </View>
+
+              <View style={s.aiSection}>
+                <Text style={s.aiSectionLabel}>TOP PERFORMER</Text>
+                <View style={s.aiRankLine}>
+                  <Text style={s.aiRankNum}>#1</Text>
+                  <View style={{flex:1}}>
+                    <Text style={s.aiRankBranch}>🥇 {ai.top.name}</Text>
+                    <Text style={s.aiRankReason}>{ai.reasons[0].pts.join(' · ')}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {ai.reasons.length > 1 && (
+                <>
+                  <View style={s.aiDivider}/>
+                  <View style={s.aiSection}>
+                    <Text style={s.aiSectionLabel}>FULL RANKING</Text>
+                    {ai.reasons.map((r, i) => (
+                      <View key={r.name} style={[s.aiRankLine, {marginBottom:6}]}>
+                        <Text style={s.aiRankNum}>#{r.rank}</Text>
+                        <View style={{flex:1}}>
+                          <Text style={s.aiRankBranch}>{r.name}</Text>
+                          <Text style={s.aiRankReason}>{r.pts.join(' · ')}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              )}
+
+              {ai.reasons.length > 1 && (
+                <>
+                  <View style={s.aiDivider}/>
+                  <View style={s.aiSection}>
+                    <Text style={s.aiSectionLabel}>NEEDS ATTENTION</Text>
+                    <View style={s.aiRankLine}>
+                      <Text style={[s.aiRankNum, {color:'#FF6B6B'}]}>#{ai.bottom.reportCount>0?sorted.length:'?'}</Text>
+                      <View style={{flex:1}}>
+                        <Text style={[s.aiRankBranch, {color:'#FF6B6B'}]}>⚠️ {ai.bottom.name}</Text>
+                        <Text style={s.aiRankReason}>{ai.reasons[ai.reasons.length-1].pts.join(' · ')}</Text>
+                      </View>
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+          );
+        })()}
+
         {sorted.map((b, idx) => {
           const medal = medals[idx]||(idx<sorted.length/2?'📈':'📉');
           const isExp = expanded===b.name;
+          const topRev = sorted[0]?.revenue || 1;
+          const barPct = Math.round(b.revenue / topRev * 100);
           const scoreColor = b.score>=75?COLORS.primary:b.score>=50?COLORS.warning:COLORS.danger;
+          const revColor = idx===0?COLORS.primary:idx===1?'#757575':idx===2?'#795548':COLORS.warning;
           const specStatus = b.specPct===0?null:b.specPct<=10?{c:'#2E7D32',lbl:'Good'}:b.specPct<=15?{c:COLORS.warning,lbl:'High'}:{c:COLORS.danger,lbl:'Too High'};
           const rphVsAvg = avgRPH>0&&b.rph>0 ? (b.rph-avgRPH)/avgRPH*100 : null;
 
@@ -195,12 +306,12 @@ export default function OwnerPerformanceScreen() {
                     <Text style={s.cardSub}>{b.reportCount} reports · Score {b.score}/100</Text>
                   </View>
                   <View style={{alignItems:'flex-end'}}>
-                    <Text style={[s.cardRev,{color:scoreColor}]}>{fmtK(b.revenue)} PLN</Text>
+                    <Text style={[s.cardRev,{color:revColor}]}>{fmtK(b.revenue)} PLN</Text>
                     {b.todayRev>0&&<Text style={s.cardToday}>{fmtK(b.todayRev)} today</Text>}
                   </View>
                   <Text style={s.chevron}>{isExp?'▲':'▼'}</Text>
                 </View>
-                <View style={s.barBg}><View style={[s.barFill,{width:b.score+'%',backgroundColor:scoreColor}]}/></View>
+                <View style={s.barBg}><View style={[s.barFill,{width:barPct+'%',backgroundColor:revColor}]}/></View>
               </TouchableOpacity>
 
               {isExp&&(
@@ -237,6 +348,17 @@ export default function OwnerPerformanceScreen() {
                     </View>
                     <View style={s.statBox}><Text style={s.statVal}>{avgRPH>0?Math.round(avgRPH)+' PLN':'—'}</Text><Text style={s.statLbl}>Chain Avg</Text></View>
                   </View>
+                  {b.workerHours.length > 0 && (
+                    <View style={s.workerHoursBox}>
+                      <Text style={s.workerHoursTitle}>Hours by Worker</Text>
+                      {b.workerHours.map((w, wi) => (
+                        <View key={wi} style={s.workerHoursRow}>
+                          <Text style={s.workerHoursName}>{w.name}</Text>
+                          <Text style={s.workerHoursVal}>{w.hours}h</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
 
                   <Text style={s.secLbl}>🚚 Delivery</Text>
                   <View style={s.grid4}>
@@ -359,4 +481,21 @@ const s = StyleSheet.create({
   tableCard:{backgroundColor:'#fff',borderRadius:12,padding:12,shadowColor:'#000',shadowOpacity:0.05,shadowRadius:3,elevation:2},
   tableRow:{flexDirection:'row',paddingVertical:8,borderBottomWidth:1,borderBottomColor:'#f5f5f5'},
   tableCell:{width:85,fontSize:12,color:'#333',paddingHorizontal:4},
+  workerHoursBox:{backgroundColor:'#F0F4FF',borderRadius:10,padding:10,marginTop:8},
+  workerHoursTitle:{fontSize:11,fontWeight:'800',color:'#3949AB',marginBottom:6,letterSpacing:0.3},
+  workerHoursRow:{flexDirection:'row',justifyContent:'space-between',paddingVertical:3,borderBottomWidth:1,borderBottomColor:'#E3E8FF'},
+  workerHoursName:{fontSize:12,color:'#333'},
+  workerHoursVal:{fontSize:12,fontWeight:'700',color:'#3949AB'},
+  aiCard:{backgroundColor:'#1A1A2E',borderRadius:16,padding:16,marginBottom:16},
+  aiHeader:{flexDirection:'row',alignItems:'center',gap:8,marginBottom:12},
+  aiTitle:{fontSize:13,fontWeight:'800',color:'#fff',letterSpacing:0.5},
+  aiBadge:{backgroundColor:'#6C63FF',borderRadius:6,paddingHorizontal:8,paddingVertical:2},
+  aiBadgeTxt:{fontSize:10,fontWeight:'800',color:'#fff'},
+  aiSection:{marginBottom:10},
+  aiSectionLabel:{fontSize:11,fontWeight:'800',color:'rgba(255,255,255,0.5)',letterSpacing:0.8,marginBottom:4},
+  aiRankLine:{flexDirection:'row',alignItems:'flex-start',gap:6,marginBottom:4},
+  aiRankNum:{fontSize:13,fontWeight:'900',color:'#6C63FF',width:24},
+  aiRankBranch:{fontSize:13,fontWeight:'700',color:'#fff'},
+  aiRankReason:{fontSize:12,color:'rgba(255,255,255,0.65)',lineHeight:17,marginTop:1},
+  aiDivider:{height:1,backgroundColor:'rgba(255,255,255,0.1)',marginVertical:8},
 });
