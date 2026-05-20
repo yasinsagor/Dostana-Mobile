@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, Alert, ActivityIndicator,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -25,6 +25,140 @@ function prevDayOf(dateStr) { const d=new Date(dateStr); d.setDate(d.getDate()-1
 function fmtN(n) { return Math.round(n).toLocaleString(); }
 function n(v) { return parseFloat(v)||0; }
 function blankCfCats() { return CF_CATS.map(name=>({name,amount:''})); }
+function fmtDisplayDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+}
+
+/* ─── Calendar modal ────────────────────────────────────────── */
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function CalendarModal({ visible, selected, onSelect, onClose }) {
+  const today = new Date();
+  const [viewYear,  setViewYear]  = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-indexed
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    const now = new Date();
+    if (viewYear > now.getFullYear() || (viewYear === now.getFullYear() && viewMonth >= now.getMonth())) return;
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  }
+
+  // build grid: first day of month (Mon=0 offset)
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay  = new Date(viewYear, viewMonth + 1, 0);
+  // Monday-based offset
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= lastDay.getDate(); d++) cells.push(d);
+
+  function isoFor(day) {
+    const mm = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    return `${viewYear}-${mm}-${dd}`;
+  }
+
+  function isFuture(day) {
+    return new Date(isoFor(day)) > today;
+  }
+
+  const isNextDisabled = viewYear > today.getFullYear() ||
+    (viewYear === today.getFullYear() && viewMonth >= today.getMonth());
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={cal.overlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={cal.box}>
+          {/* Month nav */}
+          <View style={cal.nav}>
+            <TouchableOpacity onPress={prevMonth} style={cal.navBtn} activeOpacity={0.7}>
+              <Text style={cal.navArrow}>‹</Text>
+            </TouchableOpacity>
+            <Text style={cal.monthLabel}>{MONTHS[viewMonth]} {viewYear}</Text>
+            <TouchableOpacity onPress={nextMonth} style={cal.navBtn} activeOpacity={0.7} disabled={isNextDisabled}>
+              <Text style={[cal.navArrow, isNextDisabled && {color:'#ccc'}]}>›</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Day headers */}
+          <View style={cal.row}>
+            {DAYS.map(d => (
+              <View key={d} style={cal.cell}>
+                <Text style={cal.dayHeader}>{d}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Date grid */}
+          {Array.from({ length: Math.ceil(cells.length / 7) }, (_, row) => (
+            <View key={row} style={cal.row}>
+              {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
+                if (!day) return <View key={col} style={cal.cell} />;
+                const iso = isoFor(day);
+                const isSelected = iso === selected;
+                const isToday = iso === todayStr();
+                const future = isFuture(day);
+                return (
+                  <TouchableOpacity
+                    key={col}
+                    style={cal.cell}
+                    onPress={() => { if (!future) { onSelect(iso); onClose(); } }}
+                    activeOpacity={future ? 1 : 0.7}
+                    disabled={future}
+                  >
+                    <View style={[
+                      cal.dayCircle,
+                      isSelected && cal.daySelected,
+                      isToday && !isSelected && cal.dayToday,
+                    ]}>
+                      <Text style={[
+                        cal.dayTxt,
+                        isSelected && cal.dayTxtSelected,
+                        isToday && !isSelected && { color: COLORS.primary },
+                        future && { color: '#DDD' },
+                      ]}>{day}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+
+          <TouchableOpacity style={cal.todayBtn} onPress={() => { onSelect(todayStr()); onClose(); }} activeOpacity={0.8}>
+            <Text style={cal.todayBtnTxt}>Go to Today</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+const cal = StyleSheet.create({
+  overlay:      { flex:1, backgroundColor:'rgba(0,0,0,0.5)', justifyContent:'center', alignItems:'center', padding:20 },
+  box:          { backgroundColor:'#fff', borderRadius:20, padding:16, width:'100%', maxWidth:340, shadowColor:'#000', shadowOpacity:0.2, shadowRadius:16, elevation:12 },
+  nav:          { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:12 },
+  navBtn:       { padding:8 },
+  navArrow:     { fontSize:26, color:'#333', fontWeight:'300', lineHeight:30 },
+  monthLabel:   { fontSize:15, fontWeight:'800', color:'#222' },
+  row:          { flexDirection:'row', marginBottom:2 },
+  cell:         { flex:1, alignItems:'center', paddingVertical:3 },
+  dayHeader:    { fontSize:10, fontWeight:'700', color:'#aaa', textTransform:'uppercase' },
+  dayCircle:    { width:34, height:34, borderRadius:17, alignItems:'center', justifyContent:'center' },
+  daySelected:  { backgroundColor:COLORS.primary },
+  dayToday:     { borderWidth:2, borderColor:COLORS.primary },
+  dayTxt:       { fontSize:13, fontWeight:'600', color:'#333' },
+  dayTxtSelected:{ color:'#fff', fontWeight:'900' },
+  todayBtn:     { marginTop:10, backgroundColor:'#F4F6F8', borderRadius:10, padding:12, alignItems:'center' },
+  todayBtnTxt:  { fontSize:13, fontWeight:'700', color:COLORS.primary },
+});
 
 /* ─── sub-components ────────────────────────────────────────── */
 function SectionCard({ title, color=COLORS.primary, children }) {
@@ -104,6 +238,7 @@ export default function ManagerSubmitScreen() {
   const [saving,       setSaving]       = useState(false);
   const [submitted,    setSubmitted]    = useState(false);
   const [draftLoaded,  setDraftLoaded]  = useState(false);
+  const [showCal,      setShowCal]      = useState(false);
   const autoSaveTimer = useRef(null);
 
   /* ── reset form when date changes ── */
@@ -434,29 +569,19 @@ export default function ManagerSubmitScreen() {
       <View style={s.header}>
         <View style={{flex:1}}>
           <Text style={s.headerTitle}>📤 {branch}</Text>
-          <View style={{flexDirection:'row', alignItems:'center', gap:8, marginTop:4}}>
-            {/* Date toggle */}
-            <TouchableOpacity
-              style={[s.dateBtn, isToday && s.dateBtnActive]}
-              onPress={() => switchDate(todayStr())}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.dateBtnTxt, isToday && s.dateBtnTxtActive]}>Today</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.dateBtn, !isToday && s.dateBtnActive]}
-              onPress={() => switchDate(yesterdayStr())}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.dateBtnTxt, !isToday && s.dateBtnTxtActive]}>Yesterday</Text>
-            </TouchableOpacity>
+          <TouchableOpacity style={s.datePickerBtn} onPress={() => setShowCal(true)} activeOpacity={0.75}>
+            <Text style={s.datePickerIcon}>📅</Text>
+            <View style={{flex:1}}>
+              <Text style={s.datePickerTxt}>{fmtDisplayDate(selectedDate)}</Text>
+              <Text style={s.datePickerSub}>{isToday ? 'Today' : selectedDate === yesterdayStr() ? 'Yesterday' : 'Past date'} · tap to change</Text>
+            </View>
             {isEditMode && (
               <View style={s.editBadge}>
-                <Text style={s.editBadgeTxt}>EDIT MODE</Text>
+                <Text style={s.editBadgeTxt}>EDIT</Text>
               </View>
             )}
-          </View>
-          <Text style={s.headerSub}>{selectedDate} · {draftLoaded ? (isEditMode ? 'Loaded from DB' : 'Draft restored') : 'Loading...'}</Text>
+          </TouchableOpacity>
+          <Text style={s.headerSub}>{draftLoaded ? (isEditMode ? 'Loaded from DB' : 'Draft restored') : 'Loading...'}</Text>
         </View>
         {/* submission status chips */}
         <View style={{gap:3}}>
@@ -620,6 +745,13 @@ export default function ManagerSubmitScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      <CalendarModal
+        visible={showCal}
+        selected={selectedDate}
+        onSelect={switchDate}
+        onClose={() => setShowCal(false)}
+      />
+
       {/* ── STICKY BOTTOM BAR ── */}
       <View style={[s.stickyBar, isEditMode && {backgroundColor:'#1A237E'}]}>
         <View style={s.stickyStats}>
@@ -660,10 +792,10 @@ const s = StyleSheet.create({
   header:          { backgroundColor:'#fff', paddingHorizontal:16, paddingVertical:12, flexDirection:'row', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#EEE' },
   headerTitle:     { fontSize:16, fontWeight:'800', color:'#222' },
   headerSub:       { fontSize:11, color:'#aaa', marginTop:2 },
-  dateBtn:         { paddingHorizontal:12, paddingVertical:4, borderRadius:20, borderWidth:1.5, borderColor:'#E0E0E0', backgroundColor:'#F5F5F5' },
-  dateBtnActive:   { backgroundColor:COLORS.primary, borderColor:COLORS.primary },
-  dateBtnTxt:      { fontSize:11, fontWeight:'700', color:'#888' },
-  dateBtnTxtActive:{ color:'#fff' },
+  datePickerBtn:   { flexDirection:'row', alignItems:'center', gap:8, backgroundColor:'#F4F6F8', borderRadius:12, paddingHorizontal:12, paddingVertical:8, marginTop:6, borderWidth:1.5, borderColor:'#E0E0E0' },
+  datePickerIcon:  { fontSize:18 },
+  datePickerTxt:   { fontSize:13, fontWeight:'800', color:'#222' },
+  datePickerSub:   { fontSize:10, color:'#aaa', marginTop:1 },
   editBadge:       { backgroundColor:'#1565C0', borderRadius:6, paddingHorizontal:8, paddingVertical:3 },
   editBadgeTxt:    { fontSize:9, fontWeight:'900', color:'#fff', letterSpacing:1 },
   chip:            { borderRadius:6, paddingHorizontal:8, paddingVertical:3 },
