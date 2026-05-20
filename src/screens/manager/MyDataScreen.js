@@ -17,10 +17,18 @@ import { FALLBACK_PRODUCTS } from '../../lib/products';
 /* ─── helpers ───────────────────────────────────────────────── */
 function parseExp(raw) {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; } }
-  if (typeof raw === 'object') return Object.entries(raw).map(([name, amount]) => ({ name, amount: Number(amount) }));
-  return [];
+  let arr = raw;
+  if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { return []; } }
+  if (!Array.isArray(arr)) {
+    if (arr && typeof arr === 'object') {
+      arr = Object.entries(arr).map(([k, v]) => ({ name: k, amount: Number(v) }));
+    } else return [];
+  }
+  return arr.map(e => ({
+    name:   e.name || e.Name || e.kategoria || e.category || e.description || e.title || e.label || '',
+    amount: Number(e.amount ?? e.Amount ?? e.kwota ?? e.value ?? e.sum ?? e.total ?? 0),
+    category: e.category || e.kategoria || e.cat || '',
+  }));
 }
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtK(n) { if (!n && n !== 0) return '0'; return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
@@ -844,6 +852,30 @@ export default function ManagerMyDataScreen() {
 
         {/* ══ CASH ═════════════════════════════════════════════ */}
         {tab === 'Cash' && (<>
+          {/* Income / Expenses / Balance strip */}
+          {cfAll.length > 0 && (() => {
+            const totalExp = cfAll.reduce((sum, r) => sum + (r.total_expenses || r.total || 0), 0);
+            const totalInc = drAll.reduce((sum, r) => sum + (r.total_revenue || r.revenue || 0), 0);
+            const bal = totalInc - totalExp;
+            return (
+              <View style={s.cfHeader}>
+                <View style={s.cfHCell}>
+                  <Text style={s.cfHLbl}>Total Income</Text>
+                  <Text style={[s.cfHVal, { color: COLORS.primary }]}>{fmtK(totalInc)} PLN</Text>
+                </View>
+                <View style={[s.cfHCell, s.cfHMid]}>
+                  <Text style={s.cfHLbl}>Total Expenses</Text>
+                  <Text style={[s.cfHVal, { color: COLORS.danger }]}>{fmtK(totalExp)} PLN</Text>
+                </View>
+                <View style={s.cfHCell}>
+                  <Text style={s.cfHLbl}>Balance</Text>
+                  <Text style={[s.cfHVal, { color: bal >= 0 ? COLORS.primary : COLORS.danger }]}>
+                    {bal >= 0 ? '+' : ''}{fmtK(bal)} PLN
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
           <View style={s.listHeader}>
             <Text style={s.listHeaderTxt}>💰 {cfAll.length} reports · last 3 months</Text>
           </View>
@@ -1192,6 +1224,11 @@ const s = StyleSheet.create({
   // list tabs
   listHeader: { paddingVertical: 8, paddingHorizontal: 2, marginBottom: 4 },
   listHeaderTxt: { fontSize: 12, color: '#888', fontWeight: '700' },
+  cfHeader: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  cfHCell:  { flex: 1, alignItems: 'center' },
+  cfHMid:   { borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#F0F0F0' },
+  cfHLbl:   { fontSize: 10, color: '#aaa', fontWeight: '700', marginBottom: 3, textAlign: 'center' },
+  cfHVal:   { fontSize: 16, fontWeight: '900', textAlign: 'center' },
   empty: { padding: 40, alignItems: 'center' },
   emptyTxt: { color: '#aaa', fontSize: 13, textAlign: 'center' },
   recCard: { backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#EEE', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },

@@ -14,11 +14,20 @@ import { COLORS, BRANCHES } from '../../constants';
 /* ─── helpers ─────────────────────────────────────────────── */
 function parseExp(raw) {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; } }
-  if (typeof raw === 'object') return Object.entries(raw).map(([name, amount]) => ({ name, amount: Number(amount) }));
-  return [];
+  let arr = raw;
+  if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { return []; } }
+  if (!Array.isArray(arr)) {
+    if (arr && typeof arr === 'object') {
+      arr = Object.entries(arr).map(([k, v]) => ({ name: k, amount: Number(v) }));
+    } else return [];
+  }
+  return arr.map(e => ({
+    name:   e.name || e.Name || e.kategoria || e.category || e.description || e.title || e.label || '',
+    amount: Number(e.amount ?? e.Amount ?? e.kwota ?? e.value ?? e.sum ?? e.total ?? 0),
+    category: e.category || e.kategoria || e.cat || '',
+  }));
 }
+function expAmt(e) { return Number(e.amount ?? e.Amount ?? e.kwota ?? e.value ?? 0); }
 function pad(n) { return String(n).padStart(2, '0'); }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function fmtK(n) { if (!n && n !== 0) return '0'; return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : Math.round(n).toString(); }
@@ -103,37 +112,50 @@ const ss = StyleSheet.create({
   lbl:  { fontSize: 10, color: '#aaa', marginTop: 2, fontWeight: '600', textAlign: 'center' },
 });
 
-function CashSummaryStrip({ data }) {
-  const total  = data.reduce((s, r) => s + (r.total_expenses || r.total || 0), 0);
-  const days   = new Set(data.map(r => r.date)).size;
-  const avgDay = days > 0 ? Math.round(total / days) : 0;
-  const catMap = {};
-  data.forEach(r => {
-    (parseExp(r.expenses)).forEach(e => {
-      const cat = e.category || e.name || 'Other';
-      catMap[cat] = (catMap[cat] || 0) + (e.amount || 0);
-    });
-  });
-  const topCat = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
+function CashSummaryStrip({ cfData, drData }) {
+  const totalExp = cfData.reduce((s, r) => s + (r.total_expenses || r.total || 0), 0);
+  const totalInc = (drData || []).reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
+  const balance  = totalInc - totalExp;
+  const days     = new Set(cfData.map(r => r.date)).size;
+  const avgDay   = days > 0 ? Math.round(totalExp / days) : 0;
 
   return (
-    <View style={ss.card}>
-      <View style={ss.row}>
-        <Cell label="Total Expenses" value={`${fmtK(total)} PLN`} color={COLORS.danger} />
-        <Cell label="Avg / Day"      value={`${fmtK(avgDay)} PLN`} color="#E65100" />
-        <Cell label="Days"           value={String(days)}           color="#555" />
-        <Cell label="Reports"        value={String(data.length)}    color="#555" />
-      </View>
-      {topCat && (
-        <View style={[ss.row, { borderTopWidth: 1, borderTopColor: '#F5F5F5', paddingTop: 10, marginTop: 6 }]}>
-          <Cell label="Top Category"  value={topCat[0].slice(0, 12)} color="#E65100" />
-          <Cell label="Top Cat. Amt"  value={`${fmtK(topCat[1])} PLN`} color={COLORS.danger} />
-          <View style={ss.cell} /><View style={ss.cell} />
+    <View style={csh.card}>
+      {/* Top 3: Income / Expenses / Balance */}
+      <View style={csh.topRow}>
+        <View style={csh.bigCell}>
+          <Text style={csh.bigLbl}>Total Income</Text>
+          <Text style={[csh.bigVal, { color: COLORS.primary }]}>{fmtK(totalInc)} PLN</Text>
         </View>
-      )}
+        <View style={[csh.bigCell, csh.midCell]}>
+          <Text style={csh.bigLbl}>Total Expenses</Text>
+          <Text style={[csh.bigVal, { color: COLORS.danger }]}>{fmtK(totalExp)} PLN</Text>
+        </View>
+        <View style={csh.bigCell}>
+          <Text style={csh.bigLbl}>Balance</Text>
+          <Text style={[csh.bigVal, { color: balance >= 0 ? COLORS.primary : COLORS.danger }]}>
+            {balance >= 0 ? '+' : ''}{fmtK(balance)} PLN
+          </Text>
+        </View>
+      </View>
+      {/* Bottom row */}
+      <View style={csh.bottomRow}>
+        <Cell label="Days"      value={String(days)}         color="#555" />
+        <Cell label="Avg/Day"   value={`${fmtK(avgDay)} PLN`} color="#E65100" />
+        <Cell label="Reports"   value={String(cfData.length)} color="#555" />
+      </View>
     </View>
   );
 }
+const csh = StyleSheet.create({
+  card:      { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 3 },
+  topRow:    { flexDirection: 'row', marginBottom: 12 },
+  bigCell:   { flex: 1, alignItems: 'center' },
+  midCell:   { borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#F0F0F0' },
+  bigLbl:    { fontSize: 10, color: '#aaa', fontWeight: '700', marginBottom: 4, textAlign: 'center' },
+  bigVal:    { fontSize: 18, fontWeight: '900', textAlign: 'center' },
+  bottomRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#F5F5F5', paddingTop: 10 },
+});
 
 /* ─── Daily card ──────────────────────────────────────────── */
 function DailyCard({ record, showBranch }) {
@@ -734,7 +756,7 @@ export default function OwnerReportsScreen() {
           </>
         ) : (
           <>
-            {filtCash.length > 0 && <CashSummaryStrip data={filtCash} />}
+            {filtCash.length > 0 && <CashSummaryStrip cfData={filtCash} drData={filtDaily} />}
             <Text style={s.countTxt}>
               {filtCash.length} record{filtCash.length !== 1 ? 's' : ''}
               {branch === 'All' ? ` · ${new Set(filtCash.map(r => r.branch)).size} branches` : ` · ${branch}`}
