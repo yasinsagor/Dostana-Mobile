@@ -18,7 +18,6 @@
     },
     "android": {
       "package": "com.dostana.mobile",
-      "jsEngine": "jsc",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1A1A1A"
