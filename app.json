@@ -36,7 +36,8 @@
           }
         }
       ],
-      "./plugins/with16KBPageSupport"
+      "./plugins/with16KBPageSupport",
+      "./plugins/withUseLegacyPackaging"
     ]
   }
 }
