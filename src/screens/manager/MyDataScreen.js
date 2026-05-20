@@ -5,6 +5,9 @@ import {
   Alert, KeyboardAvoidingView, Platform, Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase, fetchDailyReports, fetchCashflowReports, fetchSpecOrders, fetchAllDailyReports } from '../../lib/supabase';
 import { COLORS } from '../../constants';
@@ -375,10 +378,200 @@ export default function ManagerMyDataScreen() {
     setReportReady(true);
   }
 
-  async function shareReport() {
+  async function shareText() {
     try {
       await Share.share({ message: reportText, title: `Dostana Report — ${branch}` });
     } catch (e) { Alert.alert('Share failed', e.message); }
+  }
+
+  function buildCSV() {
+    const { f, t } = resolveRange();
+    const filtDr = drAll.filter(r => r.date >= f && r.date <= t);
+    const filtCf = cfAll.filter(r => r.date >= f && r.date <= t);
+    const rows = [];
+
+    if (rSecs.daily && filtDr.length > 0) {
+      rows.push(['=== DAILY SALES ===']);
+      rows.push(['Date','Revenue','Cash','Card','Wolt','Glovo','Uber Eats','Bolt','Pyszne','Hours']);
+      [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+        rows.push([
+          r.date,
+          r.total_revenue||r.revenue||0,
+          r.cash||r.gotowka||0,
+          r.card||r.karta||0,
+          r.wolt||0, r.glovo||0, r.uber_eats||0, r.bolt||0, r.pyszne||0,
+          r.total_hours||r.hours||0,
+        ]);
+      });
+      rows.push([]);
+    }
+
+    if (rSecs.cashflow && filtCf.length > 0) {
+      // collect all category names
+      const catNames = [...new Set(filtCf.flatMap(r=>(Array.isArray(r.expenses)?r.expenses:[]).map(e=>e.name)))];
+      rows.push(['=== CASH FLOW ===']);
+      rows.push(['Date','Total Expenses',...catNames]);
+      [...filtCf].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+        const exps = Array.isArray(r.expenses)?r.expenses:[];
+        const catMap = Object.fromEntries(exps.map(e=>[e.name,e.amount||0]));
+        rows.push([r.date, r.total_expenses||0, ...catNames.map(c=>catMap[c]||0)]);
+      });
+      rows.push([]);
+    }
+
+    if (rSecs.hours && filtDr.length > 0) {
+      rows.push(['=== HOURS ===']);
+      rows.push(['Date','Hours','Revenue','Revenue per Hour','Est. Labor (22 PLN/hr)']);
+      [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+        const h = r.total_hours||r.hours||0;
+        const rv = r.total_revenue||r.revenue||0;
+        rows.push([r.date, h, rv, h>0?Math.round(rv/h):0, h*22]);
+      });
+      rows.push([]);
+    }
+
+    if (rSecs.platforms && filtDr.length > 0) {
+      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+      rows.push(['=== PLATFORMS ===']);
+      rows.push(['Platform','Revenue PLN','% of Total']);
+      DELIVERY_KEYS.filter(k=>rPlat[k]).forEach(k => {
+        const val = filtDr.reduce((s,r)=>s+(r[k]||0),0);
+        rows.push([DELIVERY_LABELS[k], val, totalRev>0?Math.round(val/totalRev*100):0]);
+      });
+      rows.push([]);
+    }
+
+    if (rSecs.payments && filtDr.length > 0) {
+      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+      rows.push(['=== PAYMENTS ===']);
+      rows.push(['Method','Revenue PLN','% of Total']);
+      if (rPay.cash) { const v=filtDr.reduce((s,r)=>s+(r.cash||r.gotowka||0),0); rows.push(['Cash',v,totalRev>0?Math.round(v/totalRev*100):0]); }
+      if (rPay.card) { const v=filtDr.reduce((s,r)=>s+(r.card||r.karta||0),0); rows.push(['Card',v,totalRev>0?Math.round(v/totalRev*100):0]); }
+    }
+
+    return rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  }
+
+  function buildPDFHtml() {
+    const { f, t } = resolveRange();
+    const filtDr = drAll.filter(r => r.date >= f && r.date <= t);
+    const filtCf = cfAll.filter(r => r.date >= f && r.date <= t);
+    const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+    const totalExp = filtCf.reduce((s,r)=>s+(r.total_expenses||0),0);
+    const totalHrs = filtDr.reduce((s,r)=>s+(r.total_hours||r.hours||0),0);
+
+    const tr = (cells, header=false) =>
+      `<tr>${cells.map(c=>`<${header?'th':'td'}>${c}</${header?'th':'td'}>`).join('')}</tr>`;
+    const table = (headers, rows) =>
+      `<table><thead>${tr(headers,true)}</thead><tbody>${rows.map(r=>tr(r)).join('')}</tbody></table>`;
+    const section = (title, content) =>
+      `<div class="section"><h2>${title}</h2>${content}</div>`;
+
+    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <style>
+      body{font-family:Arial,sans-serif;margin:32px;color:#222;font-size:12px}
+      h1{color:#2E7D32;font-size:18px;margin-bottom:4px}
+      h2{color:#1565C0;font-size:13px;margin:0 0 8px;border-bottom:2px solid #1565C0;padding-bottom:4px}
+      .meta{color:#888;font-size:11px;margin-bottom:20px}
+      .section{margin-bottom:24px}
+      .summary{display:flex;gap:12px;margin-bottom:12px}
+      .scard{flex:1;background:#F4F6F8;border-radius:8px;padding:10px;text-align:center}
+      .scard .val{font-size:16px;font-weight:bold;color:#2E7D32}
+      .scard .lbl{font-size:10px;color:#888;margin-top:2px}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th{background:#1565C0;color:#fff;padding:6px 8px;text-align:left}
+      td{padding:5px 8px;border-bottom:1px solid #EEE}
+      tr:nth-child(even) td{background:#F9F9F9}
+      .green{color:#2E7D32;font-weight:bold}
+      .red{color:#C62828;font-weight:bold}
+    </style></head><body>`;
+
+    html += `<h1>Dostana Kebab — ${branch}</h1>`;
+    html += `<div class="meta">📊 Report: ${fmtDate(f)} → ${fmtDate(t)} &nbsp;|&nbsp; Generated: ${fmtDate(today)}</div>`;
+
+    html += `<div class="summary">
+      <div class="scard"><div class="val">${fmtK(totalRev)} PLN</div><div class="lbl">Total Revenue</div></div>
+      <div class="scard"><div class="val red">${fmtK(totalExp)} PLN</div><div class="lbl">Total Expenses</div></div>
+      <div class="scard"><div class="val">${filtDr.length}</div><div class="lbl">Days Reported</div></div>
+      <div class="scard"><div class="val">${totalHrs}h</div><div class="lbl">Total Hours</div></div>
+    </div>`;
+
+    if (rSecs.daily && filtDr.length > 0) {
+      const rows = [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).map(r => {
+        const rv=r.total_revenue||r.revenue||0;
+        const deliv=DELIVERY_KEYS.reduce((d,k)=>d+(r[k]||0),0);
+        return [fmtDate(r.date), `${fmtK(rv)} PLN`, `${fmtK(r.cash||r.gotowka||0)} PLN`, `${fmtK(r.card||r.karta||0)} PLN`, `${fmtK(deliv)} PLN`, `${r.total_hours||r.hours||0}h`];
+      });
+      html += section('📋 Daily Sales', table(['Date','Revenue','Cash','Card','Delivery','Hours'], rows));
+    }
+
+    if (rSecs.platforms && filtDr.length > 0) {
+      const rows = DELIVERY_KEYS.filter(k=>rPlat[k]).map(k => {
+        const val=filtDr.reduce((s,r)=>s+(r[k]||0),0);
+        const p=totalRev>0?Math.round(val/totalRev*100):0;
+        return [DELIVERY_LABELS[k], `${fmtK(val)} PLN`, `${p}%`];
+      }).filter(r=>r[1]!=='0 PLN');
+      html += section('🛵 Platform Breakdown', table(['Platform','Revenue','% of Total'], rows));
+    }
+
+    if (rSecs.payments && filtDr.length > 0) {
+      const methods = [];
+      if(rPay.cash){const v=filtDr.reduce((s,r)=>s+(r.cash||r.gotowka||0),0); methods.push(['Cash',`${fmtK(v)} PLN`,totalRev>0?`${Math.round(v/totalRev*100)}%`:'—']);}
+      if(rPay.card){const v=filtDr.reduce((s,r)=>s+(r.card||r.karta||0),0); methods.push(['Card',`${fmtK(v)} PLN`,totalRev>0?`${Math.round(v/totalRev*100)}%`:'—']);}
+      html += section('💳 Payment Methods', table(['Method','Revenue','% of Total'], methods));
+    }
+
+    if (rSecs.cashflow && filtCf.length > 0) {
+      const catMap = {};
+      filtCf.forEach(r=>(Array.isArray(r.expenses)?r.expenses:[]).forEach(e=>{catMap[e.name]=(catMap[e.name]||0)+parseFloat(e.amount||0);}));
+      const catRows = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>[cat,`${fmtK(val)} PLN`,totalExp>0?`${Math.round(val/totalExp*100)}%`:'—']);
+      html += section('💰 Cash Flow', table(['Category','Total','% of Expenses'], catRows));
+      const cfRows = [...filtCf].sort((a,b)=>a.date.localeCompare(b.date)).map(r=>[fmtDate(r.date), `${fmtK(r.total_expenses||0)} PLN`, (Array.isArray(r.expenses)?r.expenses:[]).slice(0,3).map(e=>`${e.name}:${fmtK(e.amount)}`).join(', ')]);
+      html += table(['Date','Total','Categories'], cfRows);
+    }
+
+    if (rSecs.hours && filtDr.length > 0) {
+      const rows = [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).map(r=>{
+        const h=r.total_hours||r.hours||0; const rv=r.total_revenue||r.revenue||0;
+        return [fmtDate(r.date), `${h}h`, `${fmtK(rv)} PLN`, h>0?`${fmtK(Math.round(rv/h))} PLN`:'—', `${fmtK(h*22)} PLN`];
+      });
+      html += section('⏱ Working Hours', table(['Date','Hours','Revenue','Rev/Hour','Est. Labor'], rows));
+    }
+
+    html += '</body></html>';
+    return html;
+  }
+
+  async function exportCSV() {
+    try {
+      const csv = buildCSV();
+      const { f, t } = resolveRange();
+      const fileName = `dostana_${branch}_${f}_${t}.csv`.replace(/\s/g,'_');
+      const path = FileSystem.cacheDirectory + fileName;
+      await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(path, { mimeType: 'text/csv', dialogTitle: 'Export CSV', UTI: 'public.comma-separated-values-text' });
+      } else {
+        Alert.alert('Sharing not available', 'Cannot share files on this device.');
+      }
+    } catch (e) { Alert.alert('CSV Export Failed', e.message); }
+  }
+
+  async function exportPDF() {
+    try {
+      const html = buildPDFHtml();
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const { f, t } = resolveRange();
+      const destPath = FileSystem.cacheDirectory + `dostana_${branch}_${f}_${t}.pdf`.replace(/\s/g,'_');
+      await FileSystem.moveAsync({ from: uri, to: destPath });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(destPath, { mimeType: 'application/pdf', dialogTitle: 'Export PDF', UTI: 'com.adobe.pdf' });
+      } else {
+        await Print.printAsync({ uri: destPath });
+      }
+    } catch (e) { Alert.alert('PDF Export Failed', e.message); }
   }
 
   /* ── derived (Summary tab) ── */
@@ -824,21 +1017,34 @@ export default function ManagerMyDataScreen() {
             <Text style={rp.generateTxt}>⚡ Generate Report</Text>
           </TouchableOpacity>
 
-          {/* Report preview */}
+          {/* Report preview + export */}
           {reportReady&&(
             <View style={rp.previewCard}>
-              <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-                <Text style={rp.previewTitle}>Report Preview</Text>
-                <TouchableOpacity style={rp.shareBtn} onPress={shareReport} activeOpacity={0.8}>
-                  <Text style={rp.shareBtnTxt}>📤 Share</Text>
+              <Text style={rp.previewTitle}>Report Preview</Text>
+              <ScrollView style={rp.previewScroll} horizontal showsHorizontalScrollIndicator={false}>
+                <ScrollView nestedScrollEnabled>
+                  <Text style={rp.previewTxt} selectable>{reportText}</Text>
+                </ScrollView>
+              </ScrollView>
+
+              {/* Export buttons */}
+              <View style={rp.exportRow}>
+                <TouchableOpacity style={[rp.exportBtn,{backgroundColor:'#1B5E20'}]} onPress={exportPDF} activeOpacity={0.85}>
+                  <Text style={rp.exportIcon}>📄</Text>
+                  <Text style={rp.exportLbl}>PDF</Text>
+                  <Text style={rp.exportSub}>Print ready</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[rp.exportBtn,{backgroundColor:'#1565C0'}]} onPress={exportCSV} activeOpacity={0.85}>
+                  <Text style={rp.exportIcon}>📊</Text>
+                  <Text style={rp.exportLbl}>CSV</Text>
+                  <Text style={rp.exportSub}>Excel / Sheets</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[rp.exportBtn,{backgroundColor:'#E65100'}]} onPress={shareText} activeOpacity={0.85}>
+                  <Text style={rp.exportIcon}>📤</Text>
+                  <Text style={rp.exportLbl}>Text</Text>
+                  <Text style={rp.exportSub}>WhatsApp / email</Text>
                 </TouchableOpacity>
               </View>
-              <ScrollView style={rp.previewScroll} horizontal showsHorizontalScrollIndicator={false}>
-                <Text style={rp.previewTxt} selectable>{reportText}</Text>
-              </ScrollView>
-              <TouchableOpacity style={[rp.shareBtn,{marginTop:12,alignSelf:'stretch',alignItems:'center',paddingVertical:14}]} onPress={shareReport} activeOpacity={0.8}>
-                <Text style={rp.shareBtnTxt}>📤 Share / Export Full Report</Text>
-              </TouchableOpacity>
             </View>
           )}
 
@@ -966,9 +1172,12 @@ const rp = StyleSheet.create({
   generateBtn:  { backgroundColor:COLORS.primary, borderRadius:14, paddingVertical:16, alignItems:'center', marginTop:4, marginBottom:14 },
   generateTxt:  { color:'#fff', fontSize:15, fontWeight:'900', letterSpacing:0.5 },
   previewCard:  { backgroundColor:'#fff', borderRadius:14, padding:16, marginBottom:20, shadowColor:'#000', shadowOpacity:0.06, shadowRadius:6, elevation:2 },
-  previewTitle: { fontSize:13, fontWeight:'900', color:'#333' },
-  previewScroll:{ maxHeight:360 },
+  previewTitle: { fontSize:13, fontWeight:'900', color:'#333', marginBottom:10 },
+  previewScroll:{ maxHeight:300, borderRadius:8, backgroundColor:'#F8F8F8', padding:10, marginBottom:14 },
   previewTxt:   { fontFamily: Platform.OS==='ios'?'Courier New':'monospace', fontSize:11, color:'#333', lineHeight:17 },
-  shareBtn:     { backgroundColor:COLORS.primary, borderRadius:10, paddingHorizontal:16, paddingVertical:8 },
-  shareBtnTxt:  { color:'#fff', fontWeight:'800', fontSize:13 },
+  exportRow:    { flexDirection:'row', gap:10 },
+  exportBtn:    { flex:1, borderRadius:12, padding:12, alignItems:'center', gap:2 },
+  exportIcon:   { fontSize:22 },
+  exportLbl:    { fontSize:13, fontWeight:'900', color:'#fff', marginTop:2 },
+  exportSub:    { fontSize:9, color:'rgba(255,255,255,0.75)', fontWeight:'600' },
 });
