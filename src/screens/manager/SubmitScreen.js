@@ -77,7 +77,7 @@ export default function ManagerSubmitScreen() {
   const [revenue,   setRevenue]   = useState('');
   const [card,      setCard]      = useState('');
   const [cash,      setCash]      = useState('');
-  const [hours,     setHours]     = useState('');
+  const [workers,   setWorkers]   = useState([{ name: '', hours: '' }]);
   const [platforms, setPlatforms] = useState({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', restaumatic:'' });
   const [cfCats,    setCfCats]    = useState(CF_CATS.map(name=>({name,amount:''})));
   const [noteType,  setNoteType]  = useState('general');
@@ -93,6 +93,22 @@ export default function ManagerSubmitScreen() {
   const [draftLoaded,  setDraftLoaded]  = useState(false);
   const autoSaveTimer = useRef(null);
 
+  /* ── load saved worker names (persisted across days) ── */
+  useEffect(() => {
+    AsyncStorage.getItem(`workers_${branch}`).then(raw => {
+      if (raw) {
+        const saved = JSON.parse(raw);
+        setWorkers(saved.map(name => ({ name, hours: '' })));
+      }
+    }).catch(()=>{});
+  }, [branch]);
+
+  /* save worker names whenever they change */
+  useEffect(() => {
+    const names = workers.map(w => w.name).filter(Boolean);
+    if (names.length) AsyncStorage.setItem(`workers_${branch}`, JSON.stringify(names)).catch(()=>{});
+  }, [workers, branch]);
+
   /* ── load draft + check existing submissions ── */
   useEffect(() => {
     async function init() {
@@ -104,7 +120,8 @@ export default function ManagerSubmitScreen() {
           if (d.revenue)   setRevenue(d.revenue);
           if (d.card)      setCard(d.card);
           if (d.cash)      setCash(d.cash);
-          if (d.hours)     setHours(d.hours);
+          if (d.workers)   setWorkers(d.workers);
+          else if (d.hours) setWorkers([{ name: '', hours: d.hours }]);
           if (d.platforms) setPlatforms(d.platforms);
           if (d.cfCats)    setCfCats(d.cfCats);
           if (d.notes)     setNotes(d.notes);
@@ -140,19 +157,19 @@ export default function ManagerSubmitScreen() {
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       try {
-        await AsyncStorage.setItem(draftKey, JSON.stringify({ revenue, card, cash, hours, platforms, cfCats, notes, noteType }));
+        await AsyncStorage.setItem(draftKey, JSON.stringify({ revenue, card, cash, workers, platforms, cfCats, notes, noteType }));
       } catch {}
     }, 800);
-  }, [revenue, card, cash, hours, platforms, cfCats, notes, noteType, draftKey]);
+  }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftKey]);
 
-  useEffect(() => { if (draftLoaded) autoSave(); }, [revenue, card, cash, hours, platforms, cfCats, notes, noteType, draftLoaded]);
+  useEffect(() => { if (draftLoaded) autoSave(); }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftLoaded]);
 
   /* ── derived values ── */
   const totalDelivery = PLATFORMS.reduce((s,p)=>s+n(platforms[p]),0);
   const rev           = n(revenue);
   const cardN         = n(card);
   const cashN         = n(cash);
-  const hoursN        = n(hours);
+  const hoursN        = workers.reduce((s, w) => s + n(w.hours), 0);
   const splitSum      = cardN + cashN + totalDelivery;
   const splitMismatch = rev > 0 && Math.abs(rev - splitSum) > 50;
   const deliveryPct   = rev > 0 ? Math.round(totalDelivery/rev*100) : 0;
@@ -190,7 +207,7 @@ export default function ManagerSubmitScreen() {
     if (splitMismatch) errs.push(`• Revenue split mismatch: ${fmtN(rev)} ≠ ${fmtN(splitSum)} (Card+Cash+Delivery)`);
     if (cfFilled.length === 0) errs.push('• Cash Flow: enter at least one expense');
     if (inneWarn) errs.push('• "Inne" expense >100 PLN — add a description in Notes');
-    if (hoursN > 16) errs.push('• Working hours seem too high (>16h) — double check');
+    if (hoursN > workers.length * 14) errs.push(`• Total hours (${hoursN}h) seem high for ${workers.length} worker(s) — double check`);
     if (drSubmitted) errs.push('• Daily report already submitted today');
     if (cfSubmitted) errs.push('• Cash flow already submitted today');
     return errs;
@@ -216,7 +233,8 @@ export default function ManagerSubmitScreen() {
       if (!drSubmitted) {
         const report = {
           branch, date:today,
-          revenue: rev, card: cardN, cash: cashN, hours: hoursN,
+          revenue: rev, card: cardN, cash: cashN, hours: hoursN, total_hours: hoursN,
+          workers_hours: JSON.stringify(workers.filter(w => n(w.hours) > 0)),
           total_delivery: totalDelivery,
           total_revenue: rev,
           total_expenses: totalCF,
@@ -264,7 +282,7 @@ export default function ManagerSubmitScreen() {
             { label:'CF Expenses', value:`${fmtN(totalCF)} PLN`, color:COLORS.danger  },
             { label:'Net Profit',  value:`${fmtN(netProfit)} PLN`, color: netProfit>=0?'#2E7D32':COLORS.danger },
             { label:'Margin',      value:`${margin}%`,            color:margin>15?'#2E7D32':margin>8?COLORS.warning:COLORS.danger },
-            { label:'Hours',       value:hoursN>0?`${hoursN}h`:'—', color:'#555' },
+            { label:'Hours',       value:hoursN>0?`${hoursN}h (${workers.filter(w=>n(w.hours)>0).length} workers)`:'—', color:'#555' },
             { label:'vs Yesterday',value:diffPct!==null?`${diffPct>0?'+':''}${diffPct}%`:'—', color:diffPct>=0?COLORS.primary:COLORS.danger },
           ].map((r,i)=>(
             <View key={i} style={s.succRow}>
@@ -277,7 +295,7 @@ export default function ManagerSubmitScreen() {
               <Text style={s.specReminderTxt}>📦 SPEC order not submitted yet — tap to submit now →</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={s.newBtn} onPress={()=>{ setSubmitted(false); setRevenue(''); setCard(''); setCash(''); setHours(''); setNotes(''); setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',restaumatic:''}); setCfCats(CF_CATS.map(n=>({name:n,amount:''}))); }}>
+          <TouchableOpacity style={s.newBtn} onPress={()=>{ setSubmitted(false); setRevenue(''); setCard(''); setCash(''); setWorkers(w=>w.map(x=>({...x,hours:''}))); setNotes(''); setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',restaumatic:''}); setCfCats(CF_CATS.map(n=>({name:n,amount:''}))); }}>
             <Text style={s.newBtnTxt}>Submit New Report</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -322,9 +340,38 @@ export default function ManagerSubmitScreen() {
                 <Text style={s.mismatchTxt}>⚠️ Mismatch: {fmtN(rev)} PLN ≠ Card {fmtN(cardN)} + Cash {fmtN(cashN)} + Delivery {fmtN(totalDelivery)} = {fmtN(splitSum)} PLN</Text>
               </View>
             )}
-            <NumInput label="Working Hours" value={hours} onChange={setHours}
-              right={revPerHour>0?`${fmtN(revPerHour)} PLN/hr`:undefined}
-              warning={hoursN>16?'⚠️ Hours seem very high':hoursN>0&&hoursN<4?'⚠️ Less than 4 hours logged':undefined}/>
+            {/* ── Workers & Hours ── */}
+            <View style={s.workersHeader}>
+              <Text style={s.workersLbl}>👷 Workers & Hours</Text>
+              {hoursN > 0 && <Text style={s.workersTot}>{hoursN}h total · {fmtN(revPerHour)} PLN/hr</Text>}
+            </View>
+            {workers.map((w, i) => (
+              <View key={i} style={s.workerRow}>
+                <TextInput
+                  style={s.workerName}
+                  value={w.name}
+                  onChangeText={v => setWorkers(p => p.map((x, j) => j===i ? {...x, name:v} : x))}
+                  placeholder={`Worker ${i+1}`}
+                  placeholderTextColor="#ccc"
+                />
+                <TextInput
+                  style={s.workerHours}
+                  value={w.hours}
+                  onChangeText={v => setWorkers(p => p.map((x, j) => j===i ? {...x, hours:v} : x))}
+                  keyboardType="decimal-pad"
+                  placeholder="0h"
+                  placeholderTextColor="#ccc"
+                />
+                {workers.length > 1 && (
+                  <TouchableOpacity onPress={() => setWorkers(p => p.filter((_,j) => j!==i))} style={s.workerDel}>
+                    <Text style={{fontSize:16,color:'#E53935'}}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+            <TouchableOpacity style={s.addWorkerBtn} onPress={() => setWorkers(p => [...p, {name:'', hours:''}])}>
+              <Text style={s.addWorkerTxt}>+ Add Worker</Text>
+            </TouchableOpacity>
           </SectionCard>
 
           {/* ── DELIVERY PLATFORMS ── */}
@@ -515,4 +562,13 @@ const s = StyleSheet.create({
   specReminderTxt: { fontSize:13, color:'#6A1B9A', fontWeight:'700' },
   newBtn:          { backgroundColor:COLORS.primary, borderRadius:12, padding:16, alignItems:'center' },
   newBtnTxt:       { color:'#fff', fontWeight:'900', fontSize:15 },
+  workersHeader:   { flexDirection:'row', justifyContent:'space-between', alignItems:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:'#F5F5F5' },
+  workersLbl:      { fontSize:13, fontWeight:'700', color:'#333' },
+  workersTot:      { fontSize:12, fontWeight:'700', color:COLORS.primary },
+  workerRow:       { flexDirection:'row', alignItems:'center', paddingVertical:8, borderBottomWidth:1, borderBottomColor:'#F5F5F5', gap:8 },
+  workerName:      { flex:1, borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:8, paddingHorizontal:10, paddingVertical:7, fontSize:13, color:'#111', backgroundColor:'#FAFAFA' },
+  workerHours:     { width:70, borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:8, paddingHorizontal:10, paddingVertical:7, fontSize:13, fontWeight:'800', color:'#111', backgroundColor:'#FAFAFA', textAlign:'center' },
+  workerDel:       { width:28, alignItems:'center' },
+  addWorkerBtn:    { marginTop:8, paddingVertical:8, alignItems:'center', borderWidth:1.5, borderColor:COLORS.primary, borderRadius:8, borderStyle:'dashed' },
+  addWorkerTxt:    { fontSize:13, fontWeight:'700', color:COLORS.primary },
 });
