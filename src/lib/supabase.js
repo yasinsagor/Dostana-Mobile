@@ -92,7 +92,11 @@ export async function fetchAllSpecOrders() {
 }
 
 export async function insertSpecOrder(order) {
-  const { data, error } = await supabase.from('spec_orders').insert([order]).select().single();
+  const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+  const { data, error } = await supabase.from('spec_orders').insert([{ id, ...order }]).select().single();
   if (error) throw error;
   return data;
 }
