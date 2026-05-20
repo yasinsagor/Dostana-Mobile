@@ -7,6 +7,7 @@ import LoginScreen from '../screens/LoginScreen';
 import SplashScreen from '../screens/SplashScreen';
 import OwnerNavigator from './OwnerNavigator';
 import ManagerNavigator from './ManagerNavigator';
+import SupplierNavigator from './SupplierNavigator';
 
 export default function RootNavigator() {
   const { user, loading } = useAuth();
@@ -30,6 +31,8 @@ export default function RootNavigator() {
         <LoginScreen />
       ) : user.role === ROLES.OWNER ? (
         <OwnerNavigator />
+      ) : user.role === ROLES.SUPPLIER ? (
+        <SupplierNavigator />
       ) : (
         <ManagerNavigator />
       )}

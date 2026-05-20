@@ -12,11 +12,13 @@ export const BRANCHES = [
 ];
 
 export const OWNER_PIN = '9999';
+export const SUPPLIER_PIN = '7777';
 
 export const ROLES = {
   OWNER: 'owner',
   MANAGER: 'manager',
   STAFF: 'staff',
+  SUPPLIER: 'supplier',
 };
 
 export const COLORS = {

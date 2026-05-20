@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase, fetchSpecProducts, insertSpecOrder } from '../../lib/supabase';
 import { COLORS } from '../../constants';
+import { FALLBACK_PRODUCTS } from '../../lib/products';
 
 /* ─── helpers ─────────────────────────────────────────────── */
 function todayStr() { return new Date().toISOString().slice(0,10); }
@@ -17,74 +18,18 @@ function n(v) { return parseFloat(v) || 0; }
 
 /* fallback price per unit if price not in DB */
 function fallbackPrice(p) {
+  if (!p) return 10;
+  const fp = FALLBACK_PRODUCTS.find(x => x.name === p.name);
+  if (fp) return fp.price;
   const nm = (p.name||'').toLowerCase();
   const ut = (p.unit||'').toLowerCase();
-  if (nm.includes('kurczak') || nm.includes('chicken')) return 25;
-  if (nm.includes('baran') || nm.includes('lamb')) return 50;
-  if (ut === 'kg') return 20;
+  if (nm.includes('kurczak') || nm.includes('chicken')) return 8;
+  if (nm.includes('baran') || nm.includes('lamb')) return 22;
+  if (ut === 'kg') return 10;
   if (ut === 'karton') return 40;
-  if (ut === 'l') return 5;
+  if (ut === 'l') return 6;
   return 10;
 }
-
-
-/* ─── fallback products (used when spec_products table is empty) ── */
-const FALLBACK_PRODUCTS = [
-  // Mięso
-  { id:'f1',  name:'Kurczak',              unit:'kg',      category:'Mięso',     price:25 },
-  { id:'f2',  name:'Baranina',             unit:'kg',      category:'Mięso',     price:50 },
-  { id:'f3',  name:'Pita 55',              unit:'pckt',    category:'Mięso',     price:20 },
-  { id:'f4',  name:'Pita 65',              unit:'pckt',    category:'Mięso',     price:22 },
-  { id:'f5',  name:'Pita 110',             unit:'pckt',    category:'Mięso',     price:28 },
-  { id:'f6',  name:'Pita 85',              unit:'pckt',    category:'Mięso',     price:24 },
-  { id:'f7',  name:'Tortilla 30cm',        unit:'opak',    category:'Mięso',     price:18 },
-  { id:'f8',  name:'Tortilla 35cm',        unit:'opak',    category:'Mięso',     price:20 },
-  { id:'f9',  name:'Lawasz',               unit:'opak',    category:'Mięso',     price:15 },
-  { id:'f10', name:'Bułka',                unit:'szt',     category:'Mięso',     price:3  },
-  { id:'f11', name:'Frytki',               unit:'karton',  category:'Mięso',     price:45 },
-  { id:'f12', name:'Cebula',               unit:'szt',     category:'Mięso',     price:5  },
-  { id:'f13', name:'Nuggetsy',             unit:'szt',     category:'Mięso',     price:30 },
-  { id:'f14', name:'Falafel',              unit:'szt',     category:'Mięso',     price:25 },
-  // Sosy
-  { id:'f15', name:'Sos musztardowo-miodowy', unit:'szt', category:'Sosy',      price:12 },
-  { id:'f16', name:'Sos paprykowy ostry',  unit:'szt',    category:'Sosy',      price:12 },
-  { id:'f17', name:'Sos jalapeño',         unit:'szt',    category:'Sosy',      price:12 },
-  { id:'f18', name:'Sos serowy',           unit:'szt',    category:'Sosy',      price:12 },
-  { id:'f19', name:'Ketchup 10kg',         unit:'szt',    category:'Sosy',      price:60 },
-  { id:'f20', name:'Majonez 10kg',         unit:'szt',    category:'Sosy',      price:65 },
-  { id:'f21', name:'Jogurt 10kg',          unit:'szt',    category:'Sosy',      price:40 },
-  { id:'f22', name:'Ayran',                unit:'szt',    category:'Sosy',      price:8  },
-  { id:'f23', name:'Ostry Sambal 10kg',    unit:'szt',    category:'Sosy',      price:70 },
-  { id:'f24', name:'Mango (sos)',          unit:'szt',    category:'Sosy',      price:15 },
-  // Oleje
-  { id:'f25', name:'Olej do frutury',      unit:'szt',    category:'Oleje',     price:25 },
-  { id:'f26', name:'Olej do kapusty 5kg',  unit:'szt',    category:'Oleje',     price:30 },
-  { id:'f27', name:'Oliwa z oliwek',       unit:'L',      category:'Oleje',     price:20 },
-  { id:'f28', name:'Cynamon',              unit:'szt',     category:'Oleje',     price:8  },
-  { id:'f29', name:'Ocet',                 unit:'szt',    category:'Oleje',     price:5  },
-  { id:'f30', name:'Sól',                  unit:'kg',     category:'Oleje',     price:3  },
-  { id:'f31', name:'Folia aluminiowa',     unit:'box',    category:'Oleje',     price:15 },
-  { id:'f32', name:'Domestos 5L',          unit:'szt',    category:'Oleje',     price:18 },
-  { id:'f33', name:'Frytura oil',          unit:'pis',    category:'Oleje',     price:35 },
-  { id:'f34', name:'Woda niegazowana',     unit:'pak',    category:'Oleje',     price:12 },
-  { id:'f35', name:'Ocet winny',           unit:'butelek',category:'Oleje',     price:8  },
-  // Opakowania
-  { id:'f36', name:'Box obiadowy 750ml',   unit:'szt',    category:'Opakowania',price:15 },
-  { id:'f37', name:'Koperta kebab',        unit:'szt',    category:'Opakowania',price:10 },
-  { id:'f38', name:'Kubek plastikowy 200ml',unit:'szt',  category:'Opakowania',price:8  },
-  { id:'f39', name:'Serwetka 15×15',       unit:'opak',   category:'Opakowania',price:5  },
-  { id:'f40', name:'Serwetka 15×15 biała', unit:'opak',  category:'Opakowania',price:5  },
-  { id:'f41', name:'Reklamówka 5kg',       unit:'szt',    category:'Opakowania',price:4  },
-  { id:'f42', name:'Reklamówka 10kg',      unit:'szt',    category:'Opakowania',price:6  },
-  { id:'f43', name:'Worki sanitarne 240L', unit:'szt',    category:'Opakowania',price:12 },
-  { id:'f44', name:'Rękawiczki nitrylowe XL',unit:'opak',category:'Opakowania',price:15 },
-  { id:'f45', name:'Rękawiczki nitrylowe L', unit:'opak',category:'Opakowania',price:15 },
-  { id:'f46', name:'Ręcznik papierowy maxi', unit:'szt', category:'Opakowania',price:8  },
-  { id:'f47', name:'Ściereczka mikrofibra', unit:'szt',  category:'Opakowania',price:5  },
-  { id:'f48', name:'Rolka kasa 80×30 termiczna',unit:'szt',category:'Opakowania',price:10},
-  { id:'f49', name:'Rolka kasa 57×20 termiczna',unit:'szt',category:'Opakowania',price:10},
-  { id:'f50', name:'Kebab box 750ml',      unit:'szt',    category:'Opakowania',price:15 },
-];
 
 /* ─── category tab ────────────────────────────────────────── */
 function CatTab({ label, active, onPress, badge }) {
@@ -104,28 +49,28 @@ const ct = StyleSheet.create({
   badgeTxt:  { fontSize:9, color:'#fff', fontWeight:'800' },
 });
 
-/* ─── multi-size meat row (Kurczak / Baranina) ───────────────── */
+/* ─── multi-size meat row (Kurczak / Baranina) — chip design ─── */
 const KG_SIZES = ['10kg','15kg','20kg','25kg','30kg'];
 
 function MeatProductRow({ product, kgQtys, onChange, lastTotalKg }) {
-  // kgQtys = { '10kg': 2, '20kg': 1, ... }
-  const price = product.price || fallbackPrice(product);
-  const totalKg   = KG_SIZES.reduce((s,k)=>s+(n(kgQtys[k]))*parseInt(k),0);
+  const price     = product.price || fallbackPrice(product);
+  const totalKg   = KG_SIZES.reduce((s,k) => s + n(kgQtys[k]) * parseInt(k), 0);
   const totalCost = totalKg * price;
   const lastDiff  = lastTotalKg > 0 ? totalKg - lastTotalKg : null;
+  const activeKg  = KG_SIZES.filter(k => n(kgQtys[k]) > 0);
 
-  const adj = (size, delta) => {
+  const tapChip = (size) => {
     const cur = n(kgQtys[size]);
-    const next = Math.max(0, cur + delta);
-    onChange({ ...kgQtys, [size]: next > 0 ? next : 0 });
+    onChange({ ...kgQtys, [size]: cur + 1 });
   };
-  const set = (size, val) => {
-    onChange({ ...kgQtys, [size]: Math.max(0, n(val)) });
+  const adj = (size, delta) => {
+    const next = Math.max(0, n(kgQtys[size]) + delta);
+    onChange({ ...kgQtys, [size]: next });
   };
 
   return (
     <View style={[mr.wrap, totalKg > 0 && mr.wrapActive]}>
-      {/* header */}
+      {/* Product header */}
       <View style={mr.header}>
         <Text style={mr.name}>{product.name}</Text>
         {totalKg > 0 && (
@@ -135,59 +80,94 @@ function MeatProductRow({ product, kgQtys, onChange, lastTotalKg }) {
         )}
         {lastDiff !== null && totalKg > 0 && (
           <Text style={[mr.diff,{color:lastDiff>0?COLORS.primary:lastDiff<0?COLORS.danger:'#aaa'}]}>
-            {lastDiff>0?`↑${lastDiff}kg`:lastDiff<0?`↓${Math.abs(lastDiff)}kg`:'same'}
+            {lastDiff>0?`↑${lastDiff}kg`:lastDiff<0?`↓${Math.abs(lastDiff)}kg`:'='}
           </Text>
         )}
       </View>
-      {/* size rows */}
-      {KG_SIZES.map(size => {
-        const qty = n(kgQtys[size]);
-        const lineKg = qty * parseInt(size);
-        return (
-          <View key={size} style={[mr.sizeRow, qty > 0 && mr.sizeRowActive]}>
-            <Text style={[mr.sizeLabel, qty > 0 && mr.sizeLabelActive]}>{size}</Text>
-            <View style={mr.stepper}>
-              <TouchableOpacity style={mr.btn} onPress={()=>adj(size,-1)} activeOpacity={0.7}>
-                <Text style={mr.btnTxt}>−</Text>
-              </TouchableOpacity>
-              <TextInput
-                style={[mr.input, qty > 0 && mr.inputActive]}
-                value={qty > 0 ? String(qty) : ''}
-                onChangeText={v => set(size, v)}
-                keyboardType="numeric"
-                placeholder="0"
-                placeholderTextColor="#ccc"
-              />
-              <TouchableOpacity style={[mr.btn, mr.btnPlus]} onPress={()=>adj(size,1)} activeOpacity={0.7}>
-                <Text style={[mr.btnTxt,{color:'#fff'}]}>+</Text>
-              </TouchableOpacity>
+
+      {/* Size chips row */}
+      <View style={mr.chipsRow}>
+        {KG_SIZES.map(size => {
+          const qty = n(kgQtys[size]);
+          const active = qty > 0;
+          return (
+            <TouchableOpacity
+              key={size}
+              style={[mr.chip, active && mr.chipActive]}
+              onPress={() => tapChip(size)}
+              activeOpacity={0.7}
+            >
+              <Text style={[mr.chipTxt, active && mr.chipTxtActive]}>{size}</Text>
+              {active && (
+                <View style={mr.chipBadge}>
+                  <Text style={mr.chipBadgeTxt}>{qty}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Active size steppers */}
+      {activeKg.length === 0 ? (
+        <Text style={mr.hint}>Tap a size to order</Text>
+      ) : (
+        activeKg.map(size => {
+          const qty = n(kgQtys[size]);
+          const lineKg = qty * parseInt(size);
+          return (
+            <View key={size} style={mr.activeRow}>
+              <Text style={mr.activeLabel}>{size}</Text>
+              <View style={mr.stepper}>
+                <TouchableOpacity style={mr.btn} onPress={() => adj(size, -1)} activeOpacity={0.7}>
+                  <Text style={mr.btnTxt}>−</Text>
+                </TouchableOpacity>
+                <Text style={mr.qtyTxt}>{qty}</Text>
+                <TouchableOpacity style={[mr.btn, mr.btnPlus]} onPress={() => adj(size, 1)} activeOpacity={0.7}>
+                  <Text style={[mr.btnTxt,{color:'#fff'}]}>+</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={mr.lineKg}>{lineKg}kg</Text>
             </View>
-            {lineKg > 0 && <Text style={mr.lineKg}>= {lineKg}kg</Text>}
-          </View>
-        );
-      })}
+          );
+        })
+      )}
+
+      {/* Summary line */}
+      {totalKg > 0 && (
+        <View style={mr.summaryLine}>
+          <Text style={mr.summaryTxt}>Total: {totalKg}kg · ~{fmtK(totalCost)} PLN</Text>
+        </View>
+      )}
     </View>
   );
 }
 const mr = StyleSheet.create({
-  wrap:           { borderRadius:12, borderWidth:1.5, borderColor:'#E0E0E0', padding:12, marginBottom:8, backgroundColor:'#FAFAFA' },
-  wrapActive:     { borderColor:COLORS.primary, backgroundColor:'#F0FFF4' },
-  header:         { flexDirection:'row', alignItems:'center', gap:8, marginBottom:8 },
-  name:           { flex:1, fontSize:14, fontWeight:'900', color:'#222' },
-  totalBadge:     { backgroundColor:COLORS.primary, borderRadius:8, paddingHorizontal:8, paddingVertical:3 },
-  totalBadgeTxt:  { fontSize:11, fontWeight:'800', color:'#fff' },
-  diff:           { fontSize:11, fontWeight:'800' },
-  sizeRow:        { flexDirection:'row', alignItems:'center', paddingVertical:6, borderTopWidth:1, borderTopColor:'#F0F0F0', gap:8 },
-  sizeRowActive:  { backgroundColor:'#E8F5E9', borderRadius:6, paddingHorizontal:4 },
-  sizeLabel:      { width:38, fontSize:12, fontWeight:'700', color:'#aaa' },
-  sizeLabelActive:{ color:COLORS.primary },
-  stepper:        { flexDirection:'row', alignItems:'center', gap:4 },
-  btn:            { width:28, height:28, borderRadius:7, backgroundColor:'#EEEEEE', alignItems:'center', justifyContent:'center' },
-  btnPlus:        { backgroundColor:COLORS.primary },
-  btnTxt:         { fontSize:15, fontWeight:'900', color:'#555' },
-  input:          { width:40, textAlign:'center', borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:7, paddingVertical:3, fontSize:13, fontWeight:'800', color:'#111', backgroundColor:'#fff' },
-  inputActive:    { borderColor:COLORS.primary },
-  lineKg:         { fontSize:11, fontWeight:'700', color:COLORS.primary, marginLeft:4 },
+  wrap:          { borderRadius:12, borderWidth:1.5, borderColor:'#E0E0E0', padding:12, marginBottom:8, backgroundColor:'#FAFAFA' },
+  wrapActive:    { borderColor:COLORS.primary, backgroundColor:'#F0FFF4' },
+  header:        { flexDirection:'row', alignItems:'center', gap:8, marginBottom:10 },
+  name:          { flex:1, fontSize:14, fontWeight:'900', color:'#222' },
+  totalBadge:    { backgroundColor:COLORS.primary, borderRadius:8, paddingHorizontal:8, paddingVertical:3 },
+  totalBadgeTxt: { fontSize:11, fontWeight:'800', color:'#fff' },
+  diff:          { fontSize:11, fontWeight:'800' },
+  chipsRow:      { flexDirection:'row', flexWrap:'wrap', gap:6, marginBottom:8 },
+  chip:          { borderRadius:16, borderWidth:1.5, borderColor:'#DDD', backgroundColor:'#fff', paddingHorizontal:12, paddingVertical:7, position:'relative' },
+  chipActive:    { backgroundColor:'#E65100', borderColor:'#E65100' },
+  chipTxt:       { fontSize:12, fontWeight:'700', color:'#888' },
+  chipTxtActive: { color:'#fff' },
+  chipBadge:     { position:'absolute', top:-5, right:-5, backgroundColor:'#fff', borderRadius:8, width:16, height:16, alignItems:'center', justifyContent:'center', borderWidth:1.5, borderColor:'#E65100' },
+  chipBadgeTxt:  { fontSize:9, color:'#E65100', fontWeight:'900' },
+  hint:          { fontSize:12, color:'#bbb', textAlign:'center', paddingVertical:8, fontStyle:'italic' },
+  activeRow:     { flexDirection:'row', alignItems:'center', paddingVertical:6, borderTopWidth:1, borderTopColor:'#E8F5E9', gap:10 },
+  activeLabel:   { width:42, fontSize:12, fontWeight:'800', color:COLORS.primary },
+  stepper:       { flexDirection:'row', alignItems:'center', gap:6 },
+  btn:           { width:30, height:30, borderRadius:8, backgroundColor:'#EEEEEE', alignItems:'center', justifyContent:'center' },
+  btnPlus:       { backgroundColor:COLORS.primary },
+  btnTxt:        { fontSize:15, fontWeight:'900', color:'#555' },
+  qtyTxt:        { width:32, textAlign:'center', fontSize:14, fontWeight:'900', color:'#222' },
+  lineKg:        { fontSize:12, fontWeight:'700', color:COLORS.primary, marginLeft:'auto' },
+  summaryLine:   { marginTop:8, borderTopWidth:1, borderTopColor:'#E8F5E9', paddingTop:8, alignItems:'flex-end' },
+  summaryTxt:    { fontSize:13, fontWeight:'900', color:COLORS.primary },
 });
 
 /* ─── product row (non-meat) ──────────────────────────────── */

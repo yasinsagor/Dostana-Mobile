@@ -694,10 +694,30 @@ export default function ManagerMyDataScreen() {
               <StatCard label="Lamb" value={`${Math.round(lambKg)}kg`} color="#E65100" bg="#FFF3E0" />
               <StatCard label="Orders" value={String(spec.filter(o => o.date >= from && o.date <= to).length)} color="#6A1B9A" bg="#F3E5F5" />
             </View>
+            <View style={{ flexDirection: 'row', marginTop: 0 }}>
+              <StatCard
+                label="Est. Cost"
+                value={specCost > 0 ? `${fmtK(specCost)} PLN` : '—'}
+                color="#6A1B9A"
+                bg="#F3E5F5"
+              />
+              {foodCostPct && (
+                <StatCard
+                  label="Food Cost %"
+                  value={`${foodCostPct}%`}
+                  color={parseFloat(foodCostPct) > 15 ? COLORS.danger : '#6A1B9A'}
+                  bg={parseFloat(foodCostPct) > 15 ? '#FFEBEE' : '#F3E5F5'}
+                  sub={parseFloat(foodCostPct) > 15 ? '⚠️ High' : '✅ OK'}
+                />
+              )}
+            </View>
             {foodCostPct && (
-              <View style={[s.infoBox, { backgroundColor: parseFloat(foodCostPct) > 15 ? '#FFEBEE' : '#F3E5F5' }]}>
+              <View style={[s.infoBox, { backgroundColor: parseFloat(foodCostPct) > 15 ? '#FFEBEE' : '#F3E5F5', marginTop: 8 }]}>
+                <Text style={[s.infoTxt, { color: parseFloat(foodCostPct) > 15 ? COLORS.danger : '#6A1B9A', fontSize: 13, fontWeight: '900' }]}>
+                  💰 ~{fmtK(specCost)} PLN estimated food cost this month
+                </Text>
                 <Text style={[s.infoTxt, { color: parseFloat(foodCostPct) > 15 ? COLORS.danger : '#6A1B9A' }]}>
-                  📊 Estimated food cost: {foodCostPct}% of revenue {parseFloat(foodCostPct) > 15 ? '⚠️' : '✅'}
+                  📊 {foodCostPct}% of revenue {parseFloat(foodCostPct) > 15 ? '⚠️ Reduce SPEC ordering' : '✅ Within target'}
                 </Text>
               </View>
             )}
@@ -835,6 +855,9 @@ export default function ManagerMyDataScreen() {
                 const qty = parseFloat(it.qty || 0);
                 return s + (it.totalKg || qty * parseUnitKg(it.unit) || qty);
               }, 0);
+              const orderCost = items.reduce((s, it) => {
+                return s + parseFloat(it.qty || 0) * parseFloat(it.price || 0);
+              }, 0);
               const key = `sp_${o.id || idx}`;
               return (
                 <View key={key} style={[s.recCard, { borderLeftColor: '#6A1B9A' }]}>
@@ -843,7 +866,10 @@ export default function ManagerMyDataScreen() {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                           <Text style={s.recDate}>{o.date} <Text style={s.recDay}>{o.date ? dayName(o.date) : ''}</Text></Text>
-                          <Text style={[s.recRev, { color: '#6A1B9A' }]}>{Math.round(totalKg)}kg total</Text>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={[s.recRev, { color: '#6A1B9A' }]}>{Math.round(totalKg)}kg total</Text>
+                            {orderCost > 0 && <Text style={{ fontSize: 11, color: '#6A1B9A', fontWeight: '700' }}>~{fmtK(orderCost)} PLN</Text>}
+                          </View>
                         </View>
                         <Text style={s.recMeta}>{items.length} items · {o.note || 'no note'}</Text>
                       </View>
@@ -855,9 +881,18 @@ export default function ManagerMyDataScreen() {
                       {items.map((it, i) => (
                         <View key={i} style={s.detailRow}>
                           <Text style={s.detailLbl}>{it.name}</Text>
-                          <Text style={[s.detailVal, { color: '#6A1B9A' }]}>{it.qty} {it.unit || 'kg'}</Text>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={[s.detailVal, { color: '#6A1B9A' }]}>{it.qty} {it.unit || 'kg'}</Text>
+                            {it.price > 0 && <Text style={{ fontSize: 10, color: '#aaa' }}>~{fmtK(parseFloat(it.qty || 0) * parseFloat(it.price || 0))} PLN</Text>}
+                          </View>
                         </View>
                       ))}
+                      {orderCost > 0 && (
+                        <View style={[s.detailRow, { borderTopWidth: 1, borderTopColor: '#EEE', marginTop: 4, paddingTop: 4 }]}>
+                          <Text style={[s.detailLbl, { fontWeight: '800' }]}>Est. Total</Text>
+                          <Text style={[s.detailVal, { color: '#6A1B9A', fontSize: 13 }]}>~{fmtK(orderCost)} PLN</Text>
+                        </View>
+                      )}
                     </View>
                   )}
                 </View>

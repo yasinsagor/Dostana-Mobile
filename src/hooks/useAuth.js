@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BRANCHES, OWNER_PIN, ROLES } from '../constants';
+import { BRANCHES, OWNER_PIN, SUPPLIER_PIN, ROLES } from '../constants';
 
 const AuthContext = createContext(null);
 
@@ -18,6 +18,12 @@ export function AuthProvider({ children }) {
   function login(pin) {
     if (pin === OWNER_PIN) {
       const u = { role: ROLES.OWNER, branch: null, name: 'Owner' };
+      setUser(u);
+      AsyncStorage.setItem('dostana_user', JSON.stringify(u));
+      return { ok: true };
+    }
+    if (pin === SUPPLIER_PIN) {
+      const u = { role: ROLES.SUPPLIER, name: 'Supplier' };
       setUser(u);
       AsyncStorage.setItem('dostana_user', JSON.stringify(u));
       return { ok: true };
