@@ -799,6 +799,29 @@ export default function ManagerMyDataScreen() {
 
         {/* ══ DAILY ════════════════════════════════════════════ */}
         {tab === 'Daily' && (<>
+          {drAll.length > 0 && (() => {
+            const totalRev = drAll.reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
+            const totalExp = cfAll.reduce((s, r) => s + (r.total_expenses || r.total || 0), 0);
+            const bal = totalRev - totalExp;
+            return (
+              <View style={s.cfHeader}>
+                <View style={s.cfHCell}>
+                  <Text style={s.cfHLbl}>Total Revenue</Text>
+                  <Text style={[s.cfHVal, { color: COLORS.primary }]}>{fmtK(totalRev)} PLN</Text>
+                </View>
+                <View style={[s.cfHCell, s.cfHMid]}>
+                  <Text style={s.cfHLbl}>Total Expenses</Text>
+                  <Text style={[s.cfHVal, { color: COLORS.danger }]}>{fmtK(totalExp)} PLN</Text>
+                </View>
+                <View style={s.cfHCell}>
+                  <Text style={s.cfHLbl}>Balance</Text>
+                  <Text style={[s.cfHVal, { color: bal >= 0 ? COLORS.primary : COLORS.danger }]}>
+                    {bal >= 0 ? '+' : ''}{fmtK(bal)} PLN
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
           <View style={s.listHeader}>
             <Text style={s.listHeaderTxt}>📋 {drAll.length} reports · last 3 months</Text>
           </View>
@@ -920,6 +943,33 @@ export default function ManagerMyDataScreen() {
 
         {/* ══ SPEC ═════════════════════════════════════════════ */}
         {tab === 'SPEC' && (<>
+          {spec.length > 0 && (() => {
+            const totalCost = spec.reduce((s, o) => {
+              return s + extractItems(o.items).reduce((x, it) => x + parseFloat(it.qty || 0) * priceForItem(it), 0);
+            }, 0);
+            const totalKg = spec.reduce((s, o) => {
+              return s + extractItems(o.items).reduce((x, it) => {
+                const qty = parseFloat(it.qty || 0);
+                return x + (it.totalKg || qty * parseUnitKg(it.unit) || qty);
+              }, 0);
+            }, 0);
+            return (
+              <View style={s.cfHeader}>
+                <View style={s.cfHCell}>
+                  <Text style={s.cfHLbl}>Est. Total Cost</Text>
+                  <Text style={[s.cfHVal, { color: '#6A1B9A' }]}>~{fmtK(totalCost)} PLN</Text>
+                </View>
+                <View style={[s.cfHCell, s.cfHMid]}>
+                  <Text style={s.cfHLbl}>Total Weight</Text>
+                  <Text style={[s.cfHVal, { color: '#E65100' }]}>{Math.round(totalKg)} kg</Text>
+                </View>
+                <View style={s.cfHCell}>
+                  <Text style={s.cfHLbl}>Orders</Text>
+                  <Text style={[s.cfHVal, { color: '#555' }]}>{spec.length}</Text>
+                </View>
+              </View>
+            );
+          })()}
           <View style={s.listHeader}>
             <Text style={s.listHeaderTxt}>📦 {spec.length} orders total</Text>
           </View>
