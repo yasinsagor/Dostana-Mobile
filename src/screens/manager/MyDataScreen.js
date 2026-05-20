@@ -178,7 +178,7 @@ export default function ManagerMyDataScreen() {
     setLoading(false); setRefreshing(false);
   }, [branch, from, to, lfrom, lto, histFrom, today]);
 
-  useFocusEffect(load);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function toggle(key) { setExpanded(e => ({ ...e, [key]: !e[key] })); }
 

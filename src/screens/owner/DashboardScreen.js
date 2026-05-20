@@ -54,7 +54,7 @@ export default function OwnerDashboardScreen() {
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useFocusEffect(load);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const t = todayStr();
   const submittedSet = new Set(todayDaily.map(r => r.branch));

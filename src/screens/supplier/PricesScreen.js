@@ -125,7 +125,7 @@ export default function SupplierPricesScreen() {
     setLoading(false);
   }, []);
 
-  useFocusEffect(loadProducts);
+  useFocusEffect(useCallback(() => { loadProducts(); }, [loadProducts]));
 
   /* ── save all prices ── */
   async function saveAllPrices() {
