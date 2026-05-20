@@ -396,156 +396,182 @@ export default function ManagerMyDataScreen() {
 
   function buildCSV() {
     const { f, t } = resolveRange();
-    const filtDr = drAll.filter(r => r.date >= f && r.date <= t);
-    const filtCf = cfAll.filter(r => r.date >= f && r.date <= t);
+    const filtDr = [...drAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const filtCf = [...cfAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const drMap  = Object.fromEntries(filtDr.map(r => [r.date, r]));
+    const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
+    const line = arr => arr.map(q).join(',');
     const rows = [];
 
+    /* ── Daily Report ── */
     if (rSecs.daily && filtDr.length > 0) {
-      rows.push(['=== DAILY SALES ===']);
-      rows.push(['Date','Revenue','Cash','Card','Wolt','Glovo','Uber Eats','Bolt','Pyszne','Hours']);
-      [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
-        rows.push([
-          r.date,
-          r.total_revenue||r.revenue||0,
-          r.cash||r.gotowka||0,
-          r.card||r.karta||0,
-          r.wolt||0, r.glovo||0, r.uber_eats||0, r.bolt||0, r.pyszne||0,
-          r.total_hours||r.hours||0,
-        ]);
+      let tSale=0, tGot=0, tKar=0, tOnl=0, tWyd=0;
+      rows.push(line(['DAILY REPORT','','','','','']));
+      rows.push(line(['Date','Total Sale','Gotówka','Karta','Online','Wydatki']));
+      filtDr.forEach(r => {
+        const sale = r.total_revenue||r.revenue||0;
+        const got  = r.cash||r.gotowka||0;
+        const kar  = r.card||r.karta||0;
+        const onl  = DELIVERY_KEYS.reduce((s,k)=>s+(r[k]||0),0);
+        const cf   = filtCf.find(c=>c.date===r.date);
+        const wyd  = cf ? (cf.total_expenses||cf.total||0) : 0;
+        tSale+=sale; tGot+=got; tKar+=kar; tOnl+=onl; tWyd+=wyd;
+        rows.push(line([fmtDate(r.date), sale, got, kar, onl, wyd]));
       });
-      rows.push([]);
+      rows.push(line(['TOTAL', tSale, tGot, tKar, tOnl, tWyd]));
+      rows.push('');
     }
 
+    /* ── Cash Flow Report ── */
     if (rSecs.cashflow && filtCf.length > 0) {
-      // collect all category names
-      const catNames = [...new Set(filtCf.flatMap(r=>(Array.isArray(r.expenses)?r.expenses:[]).map(e=>e.name)))];
-      rows.push(['=== CASH FLOW ===']);
-      rows.push(['Date','Total Expenses',...catNames]);
-      [...filtCf].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
-        const exps = Array.isArray(r.expenses)?r.expenses:[];
-        const catMap = Object.fromEntries(exps.map(e=>[e.name,e.amount||0]));
-        rows.push([r.date, r.total_expenses||0, ...catNames.map(c=>catMap[c]||0)]);
+      let tInc=0, tExp=0;
+      rows.push(line(['CASH FLOW REPORT','','','']));
+      rows.push(line(['Date','Income','Purpose of Expenses','Amount']));
+      filtCf.forEach(r => {
+        const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+        const exps = Array.isArray(r.expenses) ? r.expenses : [];
+        tInc += inc;
+        if (exps.length === 0) {
+          const tot = r.total_expenses||r.total||0;
+          tExp += tot;
+          rows.push(line([fmtDate(r.date), inc, '—', tot]));
+        } else {
+          exps.forEach((e, i) => {
+            const amt = e.amount||0;
+            tExp += amt;
+            rows.push(line([i===0 ? fmtDate(r.date) : '', i===0 ? inc : '', e.name||'', amt]));
+          });
+        }
       });
-      rows.push([]);
+      const balance = tInc - tExp;
+      rows.push('');
+      rows.push(line(['Total Income', tInc, '', '']));
+      rows.push(line(['Total Expenses', tExp, '', '']));
+      rows.push(line(['Balance', balance, '', '']));
+      rows.push('');
     }
 
+    /* ── Hours Report ── */
     if (rSecs.hours && filtDr.length > 0) {
-      rows.push(['=== HOURS ===']);
-      rows.push(['Date','Hours','Revenue','Revenue per Hour','Est. Labor (22 PLN/hr)']);
-      [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+      let tHrs = 0;
+      rows.push(line(['HOURS REPORT','']));
+      rows.push(line(['Date','Daily Hours']));
+      filtDr.forEach(r => {
         const h = r.total_hours||r.hours||0;
-        const rv = r.total_revenue||r.revenue||0;
-        rows.push([r.date, h, rv, h>0?Math.round(rv/h):0, h*22]);
+        tHrs += h;
+        rows.push(line([fmtDate(r.date), h]));
       });
-      rows.push([]);
+      rows.push(line(['TOTAL', tHrs]));
+      rows.push('');
     }
 
-    if (rSecs.platforms && filtDr.length > 0) {
-      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
-      rows.push(['=== PLATFORMS ===']);
-      rows.push(['Platform','Revenue PLN','% of Total']);
-      DELIVERY_KEYS.filter(k=>rPlat[k]).forEach(k => {
-        const val = filtDr.reduce((s,r)=>s+(r[k]||0),0);
-        rows.push([DELIVERY_LABELS[k], val, totalRev>0?Math.round(val/totalRev*100):0]);
-      });
-      rows.push([]);
-    }
-
-    if (rSecs.payments && filtDr.length > 0) {
-      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
-      rows.push(['=== PAYMENTS ===']);
-      rows.push(['Method','Revenue PLN','% of Total']);
-      if (rPay.cash) { const v=filtDr.reduce((s,r)=>s+(r.cash||r.gotowka||0),0); rows.push(['Cash',v,totalRev>0?Math.round(v/totalRev*100):0]); }
-      if (rPay.card) { const v=filtDr.reduce((s,r)=>s+(r.card||r.karta||0),0); rows.push(['Card',v,totalRev>0?Math.round(v/totalRev*100):0]); }
-    }
-
-    return rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+    return rows.join('\n');
   }
 
   function buildPDFHtml() {
     const { f, t } = resolveRange();
-    const filtDr = drAll.filter(r => r.date >= f && r.date <= t);
-    const filtCf = cfAll.filter(r => r.date >= f && r.date <= t);
+    const filtDr = [...drAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const filtCf = [...cfAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const drMap  = Object.fromEntries(filtDr.map(r => [r.date, r]));
     const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
-    const totalExp = filtCf.reduce((s,r)=>s+(r.total_expenses||0),0);
+    const totalExp = filtCf.reduce((s,r)=>s+(r.total_expenses||r.total||0),0);
     const totalHrs = filtDr.reduce((s,r)=>s+(r.total_hours||r.hours||0),0);
+    const balance  = totalRev - totalExp;
 
-    const tr = (cells, header=false) =>
-      `<tr>${cells.map(c=>`<${header?'th':'td'}>${c}</${header?'th':'td'}>`).join('')}</tr>`;
-    const table = (headers, rows) =>
-      `<table><thead>${tr(headers,true)}</thead><tbody>${rows.map(r=>tr(r)).join('')}</tbody></table>`;
-    const section = (title, content) =>
-      `<div class="section"><h2>${title}</h2>${content}</div>`;
-
-    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-    <style>
-      body{font-family:Arial,sans-serif;margin:32px;color:#222;font-size:12px}
-      h1{color:#2E7D32;font-size:18px;margin-bottom:4px}
-      h2{color:#1565C0;font-size:13px;margin:0 0 8px;border-bottom:2px solid #1565C0;padding-bottom:4px}
-      .meta{color:#888;font-size:11px;margin-bottom:20px}
-      .section{margin-bottom:24px}
-      .summary{display:flex;gap:12px;margin-bottom:12px}
-      .scard{flex:1;background:#F4F6F8;border-radius:8px;padding:10px;text-align:center}
-      .scard .val{font-size:16px;font-weight:bold;color:#2E7D32}
-      .scard .lbl{font-size:10px;color:#888;margin-top:2px}
-      table{width:100%;border-collapse:collapse;font-size:11px}
-      th{background:#1565C0;color:#fff;padding:6px 8px;text-align:left}
-      td{padding:5px 8px;border-bottom:1px solid #EEE}
+    const css = `
+      body{font-family:Arial,sans-serif;margin:30px;color:#222;font-size:12px}
+      h1{color:#2E7D32;font-size:18px;margin-bottom:2px}
+      .meta{color:#888;font-size:11px;margin-bottom:18px}
+      h2{font-size:13px;margin:28px 0 8px;padding-bottom:4px;border-bottom:2px solid #2E7D32;color:#2E7D32}
+      table{width:100%;border-collapse:collapse;margin-bottom:10px}
+      th{background:#2E7D32;color:#fff;padding:7px 9px;text-align:left;font-size:11px}
+      td{padding:6px 9px;border-bottom:1px solid #EEEEEE;font-size:11px}
       tr:nth-child(even) td{background:#F9F9F9}
-      .green{color:#2E7D32;font-weight:bold}
-      .red{color:#C62828;font-weight:bold}
-    </style></head><body>`;
+      .total-row td{background:#E8F5E9;font-weight:bold;font-size:12px}
+      .total-row.red td{background:#FFEBEE;color:#C62828}
+      .total-row.bal td{background:#E3F2FD;color:#1565C0;font-size:13px}
+      .summary{display:flex;gap:10px;margin-bottom:20px}
+      .sc{flex:1;background:#F4F6F8;border-radius:8px;padding:10px;text-align:center}
+      .sc .v{font-size:16px;font-weight:bold;color:#2E7D32}
+      .sc .v.red{color:#C62828}
+      .sc .v.blue{color:#1565C0}
+      .sc .l{font-size:10px;color:#888;margin-top:3px}
+    `;
 
+    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${css}</style></head><body>`;
     html += `<h1>Dostana Kebab — ${branch}</h1>`;
-    html += `<div class="meta">📊 Report: ${fmtDate(f)} → ${fmtDate(t)} &nbsp;|&nbsp; Generated: ${fmtDate(today)}</div>`;
-
+    html += `<div class="meta">Okres: ${fmtDate(f)} → ${fmtDate(t)} &nbsp;|&nbsp; Wygenerowano: ${fmtDate(today)}</div>`;
     html += `<div class="summary">
-      <div class="scard"><div class="val">${fmtK(totalRev)} PLN</div><div class="lbl">Total Revenue</div></div>
-      <div class="scard"><div class="val red">${fmtK(totalExp)} PLN</div><div class="lbl">Total Expenses</div></div>
-      <div class="scard"><div class="val">${filtDr.length}</div><div class="lbl">Days Reported</div></div>
-      <div class="scard"><div class="val">${totalHrs}h</div><div class="lbl">Total Hours</div></div>
+      <div class="sc"><div class="v">${fmtK(totalRev)} PLN</div><div class="l">Total Revenue</div></div>
+      <div class="sc"><div class="v red">${fmtK(totalExp)} PLN</div><div class="l">Total Expenses</div></div>
+      <div class="sc"><div class="v ${balance>=0?'':'red'}">${fmtK(balance)} PLN</div><div class="l">Balance</div></div>
+      <div class="sc"><div class="v">${totalHrs}h</div><div class="l">Total Hours</div></div>
     </div>`;
 
+    /* ── Daily Report table ── */
     if (rSecs.daily && filtDr.length > 0) {
-      const rows = [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).map(r => {
-        const rv=r.total_revenue||r.revenue||0;
-        const deliv=DELIVERY_KEYS.reduce((d,k)=>d+(r[k]||0),0);
-        return [fmtDate(r.date), `${fmtK(rv)} PLN`, `${fmtK(r.cash||r.gotowka||0)} PLN`, `${fmtK(r.card||r.karta||0)} PLN`, `${fmtK(deliv)} PLN`, `${r.total_hours||r.hours||0}h`];
-      });
-      html += section('📋 Daily Sales', table(['Date','Revenue','Cash','Card','Delivery','Hours'], rows));
+      let tSale=0,tGot=0,tKar=0,tOnl=0,tWyd=0;
+      const dataRows = filtDr.map(r => {
+        const sale = r.total_revenue||r.revenue||0;
+        const got  = r.cash||r.gotowka||0;
+        const kar  = r.card||r.karta||0;
+        const onl  = DELIVERY_KEYS.reduce((s,k)=>s+(r[k]||0),0);
+        const cf   = filtCf.find(c=>c.date===r.date);
+        const wyd  = cf ? (cf.total_expenses||cf.total||0) : 0;
+        tSale+=sale; tGot+=got; tKar+=kar; tOnl+=onl; tWyd+=wyd;
+        return `<tr><td>${fmtDate(r.date)}</td><td>${fmtK(sale)} PLN</td><td>${fmtK(got)} PLN</td><td>${fmtK(kar)} PLN</td><td>${fmtK(onl)} PLN</td><td>${fmtK(wyd)} PLN</td></tr>`;
+      }).join('');
+      html += `<h2>📅 Daily Report</h2>
+        <table>
+          <thead><tr><th>Date</th><th>Total Sale</th><th>Gotówka</th><th>Karta</th><th>Online</th><th>Wydatki</th></tr></thead>
+          <tbody>${dataRows}
+          <tr class="total-row"><td>TOTAL</td><td>${fmtK(tSale)} PLN</td><td>${fmtK(tGot)} PLN</td><td>${fmtK(tKar)} PLN</td><td>${fmtK(tOnl)} PLN</td><td>${fmtK(tWyd)} PLN</td></tr>
+          </tbody>
+        </table>`;
     }
 
-    if (rSecs.platforms && filtDr.length > 0) {
-      const rows = DELIVERY_KEYS.filter(k=>rPlat[k]).map(k => {
-        const val=filtDr.reduce((s,r)=>s+(r[k]||0),0);
-        const p=totalRev>0?Math.round(val/totalRev*100):0;
-        return [DELIVERY_LABELS[k], `${fmtK(val)} PLN`, `${p}%`];
-      }).filter(r=>r[1]!=='0 PLN');
-      html += section('🛵 Platform Breakdown', table(['Platform','Revenue','% of Total'], rows));
-    }
-
-    if (rSecs.payments && filtDr.length > 0) {
-      const methods = [];
-      if(rPay.cash){const v=filtDr.reduce((s,r)=>s+(r.cash||r.gotowka||0),0); methods.push(['Cash',`${fmtK(v)} PLN`,totalRev>0?`${Math.round(v/totalRev*100)}%`:'—']);}
-      if(rPay.card){const v=filtDr.reduce((s,r)=>s+(r.card||r.karta||0),0); methods.push(['Card',`${fmtK(v)} PLN`,totalRev>0?`${Math.round(v/totalRev*100)}%`:'—']);}
-      html += section('💳 Payment Methods', table(['Method','Revenue','% of Total'], methods));
-    }
-
+    /* ── Cash Flow table ── */
     if (rSecs.cashflow && filtCf.length > 0) {
-      const catMap = {};
-      filtCf.forEach(r=>(Array.isArray(r.expenses)?r.expenses:[]).forEach(e=>{catMap[e.name]=(catMap[e.name]||0)+parseFloat(e.amount||0);}));
-      const catRows = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>[cat,`${fmtK(val)} PLN`,totalExp>0?`${Math.round(val/totalExp*100)}%`:'—']);
-      html += section('💰 Cash Flow', table(['Category','Total','% of Expenses'], catRows));
-      const cfRows = [...filtCf].sort((a,b)=>a.date.localeCompare(b.date)).map(r=>[fmtDate(r.date), `${fmtK(r.total_expenses||0)} PLN`, (Array.isArray(r.expenses)?r.expenses:[]).slice(0,3).map(e=>`${e.name}:${fmtK(e.amount)}`).join(', ')]);
-      html += table(['Date','Total','Categories'], cfRows);
+      let tInc=0, tExp2=0;
+      const dataRows = filtCf.map(r => {
+        const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+        const exps = Array.isArray(r.expenses) ? r.expenses : [];
+        tInc += inc;
+        if (exps.length === 0) {
+          const tot = r.total_expenses||r.total||0; tExp2+=tot;
+          return `<tr><td>${fmtDate(r.date)}</td><td>${fmtK(inc)} PLN</td><td>—</td><td>${fmtK(tot)} PLN</td></tr>`;
+        }
+        return exps.map((e,i) => {
+          const amt = e.amount||0; tExp2+=amt;
+          return `<tr><td>${i===0?fmtDate(r.date):''}</td><td>${i===0?fmtK(inc)+' PLN':''}</td><td>${e.name||''}</td><td>${fmtK(amt)} PLN</td></tr>`;
+        }).join('');
+      }).join('');
+      const bal2 = tInc - tExp2;
+      html += `<h2>💰 Cash Flow Report</h2>
+        <table>
+          <thead><tr><th>Date</th><th>Income</th><th>Purpose of Expenses</th><th>Amount</th></tr></thead>
+          <tbody>${dataRows}
+          <tr class="total-row"><td colspan="3">Total Income</td><td>${fmtK(tInc)} PLN</td></tr>
+          <tr class="total-row red"><td colspan="3">Total Expenses</td><td>${fmtK(tExp2)} PLN</td></tr>
+          <tr class="total-row bal"><td colspan="3">Balance</td><td>${fmtK(bal2)} PLN</td></tr>
+          </tbody>
+        </table>`;
     }
 
+    /* ── Hours table ── */
     if (rSecs.hours && filtDr.length > 0) {
-      const rows = [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).map(r=>{
-        const h=r.total_hours||r.hours||0; const rv=r.total_revenue||r.revenue||0;
-        return [fmtDate(r.date), `${h}h`, `${fmtK(rv)} PLN`, h>0?`${fmtK(Math.round(rv/h))} PLN`:'—', `${fmtK(h*22)} PLN`];
-      });
-      html += section('⏱ Working Hours', table(['Date','Hours','Revenue','Rev/Hour','Est. Labor'], rows));
+      let tH = 0;
+      const dataRows = filtDr.map(r => {
+        const h = r.total_hours||r.hours||0; tH+=h;
+        return `<tr><td>${fmtDate(r.date)}</td><td>${h}h</td></tr>`;
+      }).join('');
+      html += `<h2>⏱ Hours Report</h2>
+        <table>
+          <thead><tr><th>Date</th><th>Daily Hours</th></tr></thead>
+          <tbody>${dataRows}
+          <tr class="total-row"><td>TOTAL</td><td>${tH}h</td></tr>
+          </tbody>
+        </table>`;
     }
 
     html += '</body></html>';

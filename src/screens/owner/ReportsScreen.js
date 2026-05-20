@@ -323,125 +323,168 @@ const bg = StyleSheet.create({
 });
 
 /* ─── Export helpers ──────────────────────────────────────── */
-function buildDailyCSV(records) {
-  const header = csvRow(['Date','Day','Branch','Revenue','Cash','Card','Uber Eats','Glovo','Bolt','Pyszne','Delivery Total','Hours','Net Profit','Note']);
-  const rows = records.map(r => {
-    const rev   = r.total_revenue || r.revenue || 0;
-    const cash  = r.cash_revenue  || r.cash  || r.gotowka || 0;
-    const card  = r.card_revenue  || r.card  || r.karta   || 0;
-    const uber  = r.uber_eats || 0;
-    const glovo = r.glovo    || 0;
-    const bolt  = r.bolt     || 0;
-    const pyszne= r.pyszne   || 0;
-    const deliv = uber + glovo + bolt + pyszne;
-    const hours = r.total_hours || r.hours || 0;
-    const profit= r.net_profit || 0;
-    return csvRow([r.date, dayName(r.date), r.branch, rev, cash, card, uber, glovo, bolt, pyszne, deliv, hours, profit, r.note || '']);
+/* ── shared CSS ── */
+const REPORT_CSS = `
+  body{font-family:Arial,sans-serif;margin:30px;color:#222;font-size:12px}
+  h1{color:#2E7D32;font-size:18px;margin-bottom:2px}
+  .meta{color:#888;font-size:11px;margin-bottom:18px}
+  h2{font-size:13px;margin:26px 0 8px;padding-bottom:4px;border-bottom:2px solid #2E7D32;color:#2E7D32}
+  table{width:100%;border-collapse:collapse;margin-bottom:8px}
+  th{background:#2E7D32;color:#fff;padding:7px 9px;text-align:left;font-size:11px}
+  td{padding:6px 9px;border-bottom:1px solid #EEEEEE;font-size:11px}
+  tr:nth-child(even) td{background:#F9F9F9}
+  .total-row td{background:#E8F5E9;font-weight:bold;font-size:12px}
+  .total-row.red td{background:#FFEBEE;color:#C62828}
+  .total-row.blue td{background:#E3F2FD;color:#1565C0;font-size:13px}
+`;
+
+function buildDailyCSV(drRecords, cfRecords) {
+  const sorted = [...drRecords].sort((a,b)=>a.date.localeCompare(b.date));
+  const cfMap  = Object.fromEntries((cfRecords||[]).map(r=>[r.date,r]));
+  const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
+  const L = arr => arr.map(q).join(',');
+  const rows = [L(['Date','Branch','Total Sale','Gotówka','Karta','Online','Wydatki'])];
+  let tSale=0,tGot=0,tKar=0,tOnl=0,tWyd=0;
+  sorted.forEach(r => {
+    const sale = r.total_revenue||r.revenue||0;
+    const got  = r.cash_revenue||r.cash||r.gotowka||0;
+    const kar  = r.card_revenue||r.card||r.karta||0;
+    const onl  = DELIV_KEYS.reduce((s,k)=>s+(r[k]||0),0);
+    const cf   = cfMap[r.date];
+    const wyd  = cf ? (cf.total_expenses||cf.total||0) : 0;
+    tSale+=sale; tGot+=got; tKar+=kar; tOnl+=onl; tWyd+=wyd;
+    rows.push(L([fmtDate(r.date), r.branch||'', sale, got, kar, onl, wyd]));
   });
-  return [header, ...rows].join('\n');
+  rows.push(L(['TOTAL','', tSale, tGot, tKar, tOnl, tWyd]));
+  return rows.join('\n');
 }
 
-function buildCashCSV(records) {
-  const header = csvRow(['Date','Day','Branch','Total Expenses','Expense Name','Category','Amount','Note']);
-  const rows = [];
-  records.forEach(r => {
-    const total = r.total_expenses || r.total || 0;
-    const exps  = Array.isArray(r.expenses) ? r.expenses : [];
+function buildHoursCSV(drRecords) {
+  const sorted = [...drRecords].sort((a,b)=>a.date.localeCompare(b.date));
+  const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
+  const L = arr => arr.map(q).join(',');
+  const rows = [L(['Date','Branch','Daily Hours'])];
+  let total = 0;
+  sorted.forEach(r => {
+    const h = r.total_hours||r.hours||0; total+=h;
+    rows.push(L([fmtDate(r.date), r.branch||'', h]));
+  });
+  rows.push(L(['TOTAL','', total]));
+  return rows.join('\n');
+}
+
+function buildCashCSV(cfRecords, drRecords) {
+  const sorted = [...cfRecords].sort((a,b)=>a.date.localeCompare(b.date));
+  const drMap  = Object.fromEntries((drRecords||[]).map(r=>[r.date,r]));
+  const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
+  const L = arr => arr.map(q).join(',');
+  const rows = [L(['Date','Branch','Income','Purpose of Expenses','Amount'])];
+  let tInc=0, tExp=0;
+  sorted.forEach(r => {
+    const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+    const exps = Array.isArray(r.expenses) ? r.expenses : [];
+    tInc += inc;
     if (exps.length === 0) {
-      rows.push(csvRow([r.date, dayName(r.date), r.branch, total, '', '', '', r.note || '']));
+      const tot = r.total_expenses||r.total||0; tExp+=tot;
+      rows.push(L([fmtDate(r.date), r.branch||'', inc, '—', tot]));
     } else {
-      exps.forEach((e, i) => {
-        rows.push(csvRow([
-          i === 0 ? r.date : '',
-          i === 0 ? dayName(r.date) : '',
-          i === 0 ? r.branch : '',
-          i === 0 ? total : '',
-          e.name || '',
-          e.category || '',
-          e.amount || 0,
-          i === 0 ? (r.note || '') : '',
-        ]));
+      exps.forEach((e,i) => {
+        const amt = e.amount||0; tExp+=amt;
+        rows.push(L([i===0?fmtDate(r.date):'', i===0?r.branch||'':'', i===0?inc:'', e.name||'', amt]));
       });
     }
   });
-  return [header, ...rows].join('\n');
+  rows.push('');
+  rows.push(L(['Total Income','','',tInc,'']));
+  rows.push(L(['Total Expenses','','',tExp,'']));
+  rows.push(L(['Balance','','',(tInc-tExp),'']));
+  return rows.join('\n');
 }
 
-function buildDailyHTML(records, title) {
-  const totalRev  = records.reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
-  const totalHrs  = records.reduce((s, r) => s + (r.total_hours || r.hours || 0), 0);
-  const days      = new Set(records.map(r => r.date)).size;
+function buildDailyHTML(drRecords, cfRecords, title) {
+  const sorted = [...drRecords].sort((a,b)=>a.date.localeCompare(b.date));
+  const cfMap  = Object.fromEntries((cfRecords||[]).map(r=>[r.date,r]));
+  let tSale=0,tGot=0,tKar=0,tOnl=0,tWyd=0,tHrs=0;
 
-  const rows = [...records].sort((a, b) => (b.date||'').localeCompare(a.date||'')).map(r => {
-    const rev  = r.total_revenue || r.revenue || 0;
-    const cash = r.cash_revenue  || r.cash  || r.gotowka || 0;
-    const card = r.card_revenue  || r.card  || r.karta   || 0;
-    const deliv= DELIV_KEYS.reduce((s, k) => s + (r[k] || 0), 0);
-    const hrs  = r.total_hours || r.hours || 0;
-    return `<tr><td>${fmtDate(r.date)}</td><td>${dayName(r.date)}</td><td>${r.branch||''}</td><td>${fmtNum(rev)}</td><td>${fmtNum(cash)}</td><td>${fmtNum(card)}</td><td>${fmtNum(deliv)}</td><td>${hrs}h</td></tr>`;
+  const dailyRows = sorted.map(r => {
+    const sale = r.total_revenue||r.revenue||0;
+    const got  = r.cash_revenue||r.cash||r.gotowka||0;
+    const kar  = r.card_revenue||r.card||r.karta||0;
+    const onl  = DELIV_KEYS.reduce((s,k)=>s+(r[k]||0),0);
+    const cf   = cfMap[r.date];
+    const wyd  = cf ? (cf.total_expenses||cf.total||0) : 0;
+    const hrs  = r.total_hours||r.hours||0;
+    tSale+=sale; tGot+=got; tKar+=kar; tOnl+=onl; tWyd+=wyd; tHrs+=hrs;
+    const br = (drRecords.length > 1 && new Set(drRecords.map(x=>x.branch)).size > 1) ? `<td>${r.branch||''}</td>` : '';
+    return `<tr>${br}<td>${fmtDate(r.date)}</td><td>${fmtNum(sale)}</td><td>${fmtNum(got)}</td><td>${fmtNum(kar)}</td><td>${fmtNum(onl)}</td><td>${fmtNum(wyd)}</td></tr>`;
+  }).join('');
+  const multiBranch = new Set(drRecords.map(r=>r.branch)).size > 1;
+  const branchTh = multiBranch ? '<th>Branch</th>' : '';
+  const branchTotal = multiBranch ? '<td></td>' : '';
+
+  const hoursRows = sorted.map(r => {
+    const h = r.total_hours||r.hours||0;
+    return `<tr><td>${fmtDate(r.date)}</td><td>${h}h</td></tr>`;
   }).join('');
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-    body{font-family:Arial,sans-serif;padding:20px;color:#222}
-    h1{color:#2E7D32;font-size:22px}h2{font-size:14px;color:#666;margin-top:0}
-    .summary{display:flex;gap:20px;margin:20px 0}
-    .scard{background:#f5f5f5;border-radius:8px;padding:12px 20px;text-align:center}
-    .scard .val{font-size:22px;font-weight:900;color:#2E7D32}
-    .scard .lbl{font-size:11px;color:#aaa;margin-top:4px}
-    table{width:100%;border-collapse:collapse;font-size:13px}
-    th{background:#2E7D32;color:#fff;padding:8px;text-align:left}
-    td{padding:7px 8px;border-bottom:1px solid #eee}
-    tr:nth-child(even){background:#f9f9f9}
-    .footer{margin-top:30px;font-size:11px;color:#aaa}
-  </style></head><body>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${REPORT_CSS}</style></head><body>
   <h1>📅 ${title}</h1>
-  <h2>Generated: ${new Date().toLocaleString('pl-PL')}</h2>
-  <div class="summary">
-    <div class="scard"><div class="val">${fmtNum(totalRev)} PLN</div><div class="lbl">Total Revenue</div></div>
-    <div class="scard"><div class="val">${totalHrs}h</div><div class="lbl">Total Hours</div></div>
-    <div class="scard"><div class="val">${days}</div><div class="lbl">Days</div></div>
-    <div class="scard"><div class="val">${records.length}</div><div class="lbl">Reports</div></div>
-  </div>
-  <table><thead><tr><th>Date</th><th>Day</th><th>Branch</th><th>Revenue</th><th>Cash</th><th>Card</th><th>Delivery</th><th>Hours</th></tr></thead>
-  <tbody>${rows}</tbody></table>
-  <div class="footer">Dostana Kebab Management · Owner Report</div>
+  <div class="meta">Wygenerowano: ${new Date().toLocaleString('pl-PL')}</div>
+  <h2>Daily Report</h2>
+  <table>
+    <thead><tr>${branchTh}<th>Date</th><th>Total Sale</th><th>Gotówka</th><th>Karta</th><th>Online</th><th>Wydatki</th></tr></thead>
+    <tbody>
+      ${dailyRows}
+      <tr class="total-row">${branchTotal}<td>TOTAL</td><td>${fmtNum(tSale)}</td><td>${fmtNum(tGot)}</td><td>${fmtNum(tKar)}</td><td>${fmtNum(tOnl)}</td><td>${fmtNum(tWyd)}</td></tr>
+    </tbody>
+  </table>
+  <h2>Hours Report</h2>
+  <table>
+    <thead><tr><th>Date</th><th>Daily Hours</th></tr></thead>
+    <tbody>
+      ${hoursRows}
+      <tr class="total-row"><td>TOTAL</td><td>${tHrs}h</td></tr>
+    </tbody>
+  </table>
   </body></html>`;
 }
 
-function buildCashHTML(records, title) {
-  const totalExp = records.reduce((s, r) => s + (r.total_expenses || r.total || 0), 0);
-  const days     = new Set(records.map(r => r.date)).size;
+function buildCashHTML(cfRecords, drRecords, title) {
+  const sorted = [...cfRecords].sort((a,b)=>a.date.localeCompare(b.date));
+  const drMap  = Object.fromEntries((drRecords||[]).map(r=>[r.date,r]));
+  let tInc=0, tExp=0;
+  const multiBranch = new Set(cfRecords.map(r=>r.branch)).size > 1;
+  const branchTh = multiBranch ? '<th>Branch</th>' : '';
 
-  const rows = [...records].sort((a, b) => (b.date||'').localeCompare(a.date||'')).map(r => {
-    const total = r.total_expenses || r.total || 0;
-    const exps  = Array.isArray(r.expenses) ? r.expenses : [];
-    const expStr= exps.map(e => `${e.name||''}${e.amount ? ': '+fmtNum(e.amount)+' PLN' : ''}`).join(', ');
-    return `<tr><td>${fmtDate(r.date)}</td><td>${dayName(r.date)}</td><td>${r.branch||''}</td><td>${fmtNum(total)}</td><td>${expStr}</td></tr>`;
+  const cashRows = sorted.map(r => {
+    const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+    const exps = Array.isArray(r.expenses) ? r.expenses : [];
+    tInc += inc;
+    const branchTd = multiBranch ? `<td>${r.branch||''}</td>` : '';
+    if (exps.length === 0) {
+      const tot = r.total_expenses||r.total||0; tExp+=tot;
+      return `<tr>${branchTd}<td>${fmtDate(r.date)}</td><td>${fmtNum(inc)}</td><td>—</td><td>${fmtNum(tot)}</td></tr>`;
+    }
+    return exps.map((e,i) => {
+      const amt = e.amount||0; tExp+=amt;
+      return `<tr>${i===0?branchTd:(multiBranch?'<td></td>':'')}<td>${i===0?fmtDate(r.date):''}</td><td>${i===0?fmtNum(inc):''}</td><td>${e.name||''}</td><td>${fmtNum(amt)}</td></tr>`;
+    }).join('');
   }).join('');
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-    body{font-family:Arial,sans-serif;padding:20px;color:#222}
-    h1{color:#C62828;font-size:22px}h2{font-size:14px;color:#666;margin-top:0}
-    .summary{display:flex;gap:20px;margin:20px 0}
-    .scard{background:#f5f5f5;border-radius:8px;padding:12px 20px;text-align:center}
-    .scard .val{font-size:22px;font-weight:900;color:#C62828}
-    .scard .lbl{font-size:11px;color:#aaa;margin-top:4px}
-    table{width:100%;border-collapse:collapse;font-size:13px}
-    th{background:#C62828;color:#fff;padding:8px;text-align:left}
-    td{padding:7px 8px;border-bottom:1px solid #eee}
-    tr:nth-child(even){background:#f9f9f9}
-    .footer{margin-top:30px;font-size:11px;color:#aaa}
-  </style></head><body>
+  const bal = tInc - tExp;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${REPORT_CSS}</style></head><body>
   <h1>💰 ${title}</h1>
-  <h2>Generated: ${new Date().toLocaleString('pl-PL')}</h2>
-  <div class="summary">
-    <div class="scard"><div class="val">${fmtNum(totalExp)} PLN</div><div class="lbl">Total Expenses</div></div>
-    <div class="scard"><div class="val">${days}</div><div class="lbl">Days</div></div>
-    <div class="scard"><div class="val">${records.length}</div><div class="lbl">Reports</div></div>
-  </div>
-  <table><thead><tr><th>Date</th><th>Day</th><th>Branch</th><th>Total</th><th>Expenses</th></tr></thead>
-  <tbody>${rows}</tbody></table>
-  <div class="footer">Dostana Kebab Management · Owner Report</div>
+  <div class="meta">Wygenerowano: ${new Date().toLocaleString('pl-PL')}</div>
+  <h2>Cash Flow Report</h2>
+  <table>
+    <thead><tr>${branchTh}<th>Date</th><th>Income</th><th>Purpose of Expenses</th><th>Amount</th></tr></thead>
+    <tbody>
+      ${cashRows}
+      <tr class="total-row"><td colspan="${multiBranch?4:3}">Total Income</td><td>${fmtNum(tInc)}</td></tr>
+      <tr class="total-row red"><td colspan="${multiBranch?4:3}">Total Expenses</td><td>${fmtNum(tExp)}</td></tr>
+      <tr class="total-row blue"><td colspan="${multiBranch?4:3}">Balance</td><td>${fmtNum(bal)}</td></tr>
+    </tbody>
+  </table>
   </body></html>`;
 }
 
@@ -534,33 +577,48 @@ export default function OwnerReportsScreen() {
   const handleExport = async (format) => {
     if (activeData.length === 0) { Alert.alert('No data', 'Nothing to export for this filter.'); return; }
     setExporting(true);
-    const title = `${tab} Report — ${preset}${branch !== 'All' ? ' · ' + branch : ''}`;
+    const label = `${tab} Report — ${preset}${branch !== 'All' ? ' · ' + branch : ''}`;
     const stamp = todayStr();
     try {
       if (format === 'pdf') {
-        const html = tab === 'Daily' ? buildDailyHTML(activeData, title) : buildCashHTML(activeData, title);
-        await exportPDF(html, title);
+        const html = tab === 'Daily'
+          ? buildDailyHTML(filtDaily, filtCash, label)
+          : buildCashHTML(filtCash, filtDaily, label);
+        await exportPDF(html, label);
       } else if (format === 'csv') {
-        const csv = tab === 'Daily' ? buildDailyCSV(activeData) : buildCashCSV(activeData);
-        const fn  = `dostana_${tab.toLowerCase().replace(' ','-')}_${stamp}.csv`;
+        let csv, fn;
+        if (tab === 'Daily') {
+          csv = buildDailyCSV(filtDaily, filtCash) + '\n\n' + buildHoursCSV(filtDaily);
+          fn  = `dostana_daily_${stamp}.csv`;
+        } else {
+          csv = buildCashCSV(filtCash, filtDaily);
+          fn  = `dostana_cashflow_${stamp}.csv`;
+        }
         await exportCSV(csv, fn);
       } else {
         // plain text share
-        let lines = [`${title}\nGenerated: ${new Date().toLocaleString('pl-PL')}\n`];
+        let lines = [`*${label}*\nGenerated: ${new Date().toLocaleString('pl-PL')}\n`];
         if (tab === 'Daily') {
-          const rev = activeData.reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
-          const hrs = activeData.reduce((s, r) => s + (r.total_hours || r.hours || 0), 0);
-          lines.push(`Total Revenue: ${fmtNum(rev)} PLN`);
-          lines.push(`Total Hours: ${hrs}h | Reports: ${activeData.length}\n`);
-          activeData.slice(0, 50).forEach(r => {
-            const rev2 = r.total_revenue || r.revenue || 0;
-            lines.push(`${fmtDate(r.date)} ${r.branch||''}: ${fmtNum(rev2)} PLN`);
+          const tSale = filtDaily.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+          const tGot  = filtDaily.reduce((s,r)=>s+(r.cash_revenue||r.cash||r.gotowka||0),0);
+          const tKar  = filtDaily.reduce((s,r)=>s+(r.card_revenue||r.card||r.karta||0),0);
+          const tOnl  = filtDaily.reduce((s,r)=>s+DELIV_KEYS.reduce((d,k)=>d+(r[k]||0),0),0);
+          const tHrs  = filtDaily.reduce((s,r)=>s+(r.total_hours||r.hours||0),0);
+          lines.push(`Total Sale: ${fmtNum(tSale)} PLN`);
+          lines.push(`Gotówka: ${fmtNum(tGot)} PLN | Karta: ${fmtNum(tKar)} PLN | Online: ${fmtNum(tOnl)} PLN`);
+          lines.push(`Total Hours: ${tHrs}h\n`);
+          filtDaily.slice(0,50).forEach(r => {
+            const s2 = r.total_revenue||r.revenue||0;
+            lines.push(`${fmtDate(r.date)} ${r.branch||''}: ${fmtNum(s2)} PLN`);
           });
         } else {
-          const exp = activeData.reduce((s, r) => s + (r.total_expenses || r.total || 0), 0);
-          lines.push(`Total Expenses: ${fmtNum(exp)} PLN | Reports: ${activeData.length}\n`);
-          activeData.slice(0, 50).forEach(r => {
-            const tot = r.total_expenses || r.total || 0;
+          const tInc = filtDaily.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+          const tExp = filtCash.reduce((s,r)=>s+(r.total_expenses||r.total||0),0);
+          lines.push(`Total Income: ${fmtNum(tInc)} PLN`);
+          lines.push(`Total Expenses: ${fmtNum(tExp)} PLN`);
+          lines.push(`Balance: ${fmtNum(tInc-tExp)} PLN\n`);
+          filtCash.slice(0,50).forEach(r => {
+            const tot = r.total_expenses||r.total||0;
             lines.push(`${fmtDate(r.date)} ${r.branch||''}: ${fmtNum(tot)} PLN`);
           });
         }
