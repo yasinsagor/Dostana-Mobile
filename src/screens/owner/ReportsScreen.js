@@ -783,7 +783,7 @@ const s = StyleSheet.create({
   typeTabs:      { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EEE' },
   typeTab:       { flex: 1, paddingVertical: 13, alignItems: 'center', borderBottomWidth: 2.5, borderBottomColor: 'transparent' },
   typeTabActive: { borderBottomColor: COLORS.primary },
-  typeTabTxt:    { fontSize: 13, fontWeight: '700', color: '#aaa' },
+  typeTabTxt:    { fontSize: 13, fontWeight: '700', color: '#444' },
   typeTabActive2:{ color: COLORS.primary },
   filterArea:    { backgroundColor: '#F4F6F8', paddingTop: 10, paddingBottom: 2, borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
   chipRow:       { flexDirection: 'row', paddingHorizontal: 14, paddingBottom: 8 },
