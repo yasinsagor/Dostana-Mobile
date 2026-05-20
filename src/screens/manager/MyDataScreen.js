@@ -24,11 +24,17 @@ function parseExp(raw) {
       arr = Object.entries(arr).map(([k, v]) => ({ name: k, amount: Number(v) }));
     } else return [];
   }
-  return arr.map(e => ({
-    name:   e.name || e.Name || e.kategoria || e.category || e.description || e.title || e.label || '',
-    amount: Number(e.amount ?? e.Amount ?? e.kwota ?? e.value ?? e.sum ?? e.total ?? 0),
-    category: e.category || e.kategoria || e.cat || '',
-  }));
+  return arr.map(e => {
+    const SKIP = new Set(['id','date','branch','created_at','amount','Amount','kwota','value','sum','total','category','cat']);
+    let name = e.name || e.Name || e.kategoria || e.category || e.description || e.title || e.label || e.purpose || e.cel || '';
+    if (!name) {
+      const key = Object.keys(e).find(k => !SKIP.has(k));
+      if (key) name = key;
+    }
+    let amount = Number(e.amount ?? e.Amount ?? e.kwota ?? e.value ?? e.sum ?? e.total ?? 0);
+    if (!amount && name && !SKIP.has(name)) amount = Number(e[name]) || 0;
+    return { name, amount, category: e.category || e.kategoria || e.cat || '' };
+  });
 }
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtK(n) { if (!n && n !== 0) return '0'; return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
