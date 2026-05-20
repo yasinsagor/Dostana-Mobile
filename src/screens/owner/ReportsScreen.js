@@ -12,6 +12,13 @@ import { supabase } from '../../lib/supabase';
 import { COLORS, BRANCHES } from '../../constants';
 
 /* ─── helpers ─────────────────────────────────────────────── */
+function parseExp(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; } }
+  if (typeof raw === 'object') return Object.entries(raw).map(([name, amount]) => ({ name, amount: Number(amount) }));
+  return [];
+}
 function pad(n) { return String(n).padStart(2, '0'); }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function fmtK(n) { if (!n && n !== 0) return '0'; return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : Math.round(n).toString(); }
@@ -102,7 +109,7 @@ function CashSummaryStrip({ data }) {
   const avgDay = days > 0 ? Math.round(total / days) : 0;
   const catMap = {};
   data.forEach(r => {
-    (Array.isArray(r.expenses) ? r.expenses : []).forEach(e => {
+    (parseExp(r.expenses)).forEach(e => {
       const cat = e.category || e.name || 'Other';
       catMap[cat] = (catMap[cat] || 0) + (e.amount || 0);
     });
@@ -222,7 +229,7 @@ const dc = StyleSheet.create({
 function CashCard({ record, showBranch }) {
   const [open, setOpen] = useState(false);
   const total = record.total_expenses || record.total || 0;
-  const exps  = Array.isArray(record.expenses) ? record.expenses : [];
+  const exps  = parseExp(record.expenses);
   const catMap = {};
   exps.forEach(e => { const c = e.category || 'Other'; catMap[c] = (catMap[c] || 0) + (e.amount || 0); });
 
@@ -383,7 +390,7 @@ function buildCashCSV(cfRecords, drRecords) {
   let tInc=0, tExp=0;
   sorted.forEach(r => {
     const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
-    const exps = Array.isArray(r.expenses) ? r.expenses : [];
+    const exps = parseExp(r.expenses);
     tInc += inc;
     if (exps.length === 0) {
       const tot = r.total_expenses||r.total||0; tExp+=tot;
@@ -459,7 +466,7 @@ function buildCashHTML(cfRecords, drRecords, title) {
 
   const cashRows = sorted.map(r => {
     const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
-    const exps = Array.isArray(r.expenses) ? r.expenses : [];
+    const exps = parseExp(r.expenses);
     tInc += inc;
     const branchTd = multiBranch ? `<td>${r.branch||''}</td>` : '';
     if (exps.length === 0) {

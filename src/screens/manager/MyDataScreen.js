@@ -15,6 +15,13 @@ import { COLORS } from '../../constants';
 import { FALLBACK_PRODUCTS } from '../../lib/products';
 
 /* ─── helpers ───────────────────────────────────────────────── */
+function parseExp(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; } }
+  if (typeof raw === 'object') return Object.entries(raw).map(([name, amount]) => ({ name, amount: Number(amount) }));
+  return [];
+}
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtK(n) { if (!n && n !== 0) return '0'; return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
 function monthRange() {
@@ -192,7 +199,7 @@ export default function ManagerMyDataScreen() {
   }
 
   function openEditCF(record) {
-    const exps = Array.isArray(record.expenses) ? record.expenses : [];
+    const exps = parseExp(record.expenses);
     const fields = { total_expenses: String(record.total_expenses || 0) };
     exps.forEach(e => { fields[`exp_${e.name}`] = String(e.amount || 0); });
     setEditModal({ type: 'cf', record, fields, expenses: exps });
@@ -335,7 +342,7 @@ export default function ManagerMyDataScreen() {
       // category totals across period
       const catMap = {};
       filtCf.forEach(r => {
-        (Array.isArray(r.expenses)?r.expenses:[]).forEach(e => {
+        (parseExp(r.expenses)).forEach(e => {
           catMap[e.name] = (catMap[e.name]||0) + parseFloat(e.amount||0);
         });
       });
@@ -347,7 +354,7 @@ export default function ManagerMyDataScreen() {
       lines.push(`${col('DATE',9)}${rgt('TOTAL',9)}  CATEGORIES`);
       lines.push(line('─', 44));
       [...filtCf].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
-        const exps = Array.isArray(r.expenses)?r.expenses:[];
+        const exps = parseExp(r.expenses);
         const cats = exps.slice(0,3).map(e=>`${e.name}:${fmtK(e.amount)}`).join(' ');
         lines.push(`${col(fmtDate(r.date),9)}${rgt(fmtK(r.total_expenses||0),9)}  ${cats}`);
       });
@@ -430,7 +437,7 @@ export default function ManagerMyDataScreen() {
       rows.push(line(['Date','Income','Purpose of Expenses','Amount']));
       filtCf.forEach(r => {
         const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
-        const exps = Array.isArray(r.expenses) ? r.expenses : [];
+        const exps = parseExp(r.expenses);
         tInc += inc;
         if (exps.length === 0) {
           const tot = r.total_expenses||r.total||0;
@@ -536,7 +543,7 @@ export default function ManagerMyDataScreen() {
       let tInc=0, tExp2=0;
       const dataRows = filtCf.map(r => {
         const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
-        const exps = Array.isArray(r.expenses) ? r.expenses : [];
+        const exps = parseExp(r.expenses);
         tInc += inc;
         if (exps.length === 0) {
           const tot = r.total_expenses||r.total||0; tExp2+=tot;
@@ -637,7 +644,7 @@ export default function ManagerMyDataScreen() {
     });
   });
   const foodCostPct = rev > 0 && specCost > 0 ? (specCost / rev * 100).toFixed(1) : null;
-  const inneTotal = cf.reduce((s, r) => { const exps = Array.isArray(r.expenses) ? r.expenses : []; return s + exps.filter(e => e.name === 'Inne').reduce((x, e) => x + parseFloat(e.amount || 0), 0); }, 0);
+  const inneTotal = cf.reduce((s, r) => { const exps = parseExp(r.expenses); return s + exps.filter(e => e.name === 'Inne').reduce((x, e) => x + parseFloat(e.amount || 0), 0); }, 0);
   const innePct = totalCF > 0 ? Math.round(inneTotal / totalCF * 100) : 0;
 
   const warnings = [];
@@ -843,7 +850,7 @@ export default function ManagerMyDataScreen() {
           {cfAll.length === 0
             ? <View style={s.empty}><Text style={s.emptyTxt}>No cash flow reports found</Text></View>
             : [...cfAll].sort((a, b) => b.date.localeCompare(a.date)).map(r => {
-              const exps = Array.isArray(r.expenses) ? r.expenses : [];
+              const exps = parseExp(r.expenses);
               const key = `cf_${r.id || r.date}`;
               return (
                 <View key={key} style={[s.recCard, { borderLeftColor: '#D32F2F' }]}>

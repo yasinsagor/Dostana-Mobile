@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   RefreshControl, ActivityIndicator, Alert,
@@ -29,8 +30,14 @@ function extractExpenses(r) {
   const cats = {};
   const fields = ['warzywa','cola_pepsi','cola','pepsi','gaz','c2c','spec','wynajem','pracownicy','inne','other'];
   fields.forEach(f => { if (r[f] && Number(r[f])>0) cats[f] = (cats[f]||0)+Number(r[f]); });
-  if (r.expenses && typeof r.expenses === 'object') {
-    Object.entries(r.expenses).forEach(([k,v]) => { cats[k]=(cats[k]||0)+Number(v); });
+  if (r.expenses) {
+    let exps = r.expenses;
+    if (typeof exps === 'string') { try { exps = JSON.parse(exps); } catch { exps = null; } }
+    if (Array.isArray(exps)) {
+      exps.forEach(e => { const k = (e.name || e.kategoria || 'inne').toLowerCase(); cats[k] = (cats[k] || 0) + Number(e.amount || e.kwota || 0); });
+    } else if (exps && typeof exps === 'object') {
+      Object.entries(exps).forEach(([k, v]) => { cats[k] = (cats[k] || 0) + Number(v); });
+    }
   }
   if (r.wydatki) {
     let w = r.wydatki;
@@ -77,7 +84,7 @@ export default function OwnerCashflowScreen() {
     finally { setLoading(false); setRefreshing(false); }
   }, [selM, selY]);
 
-  useEffect(() => { setLoading(true); load(); }, [load]);
+  useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
 
   // Chain totals
   const chainRevenue = drReports.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
