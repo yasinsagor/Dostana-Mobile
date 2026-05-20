@@ -75,8 +75,8 @@ export async function deleteCashflowReport(id) {
 
 // SPEC orders
 export async function fetchSpecOrders(branch) {
-  const query = supabase.from('spec_orders').select('*').order('date', { ascending: false });
-  if (branch) query.eq('branch', branch);
+  let query = supabase.from('spec_orders').select('*').order('date', { ascending: false });
+  if (branch) query = query.eq('branch', branch);
   const { data, error } = await query;
   if (error) throw error;
   return data;

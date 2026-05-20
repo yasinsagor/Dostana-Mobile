@@ -487,7 +487,7 @@ export default function OwnerSettingsScreen() {
               <View style={[s.dbDot,{backgroundColor:dbStatus==='connected'?COLORS.primary:dbStatus==='error'?COLORS.danger:'#ccc'}]}/>
               <View style={{flex:1}}>
                 <Text style={s.dbStatusTxt}>
-                  {dbStatus==='connected'?'Connected':'dbStatus'==='error'?'Connection Error':'Status Unknown'}
+                  {dbStatus==='connected'?'Connected':dbStatus==='error'?'Connection Error':'Status Unknown'}
                 </Text>
                 <Text style={s.dbStatusSub}>Last checked: {timeAgo(lastSync)}</Text>
               </View>

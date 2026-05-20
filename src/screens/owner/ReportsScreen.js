@@ -231,6 +231,7 @@ function MiniCell({ label, value, color }) {
 }
 const dc = StyleSheet.create({
   card:        { backgroundColor: '#fff', borderRadius: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: COLORS.primary, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 3, elevation: 2 },
+  body:        { paddingHorizontal: 12, paddingBottom: 12 },
   header:      { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
   topRow:      { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
   date:        { fontSize: 14, fontWeight: '800', color: '#222' },
