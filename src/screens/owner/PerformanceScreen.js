@@ -45,32 +45,103 @@ function parseWorkersHours(raw) {
 
 function buildAIAnalysis(sorted, daysElapsed, avgRev, avgRPH) {
   if (sorted.length === 0) return null;
-  const top = sorted[0];
-  const bottom = sorted[sorted.length - 1];
+  const topRev = sorted[0].revenue;
 
-  const reasons = sorted.map((b, idx) => {
-    const pts = [];
-    if (b.revenue >= avgRev * 1.2) pts.push(`revenue ${Math.round((b.revenue/avgRev-1)*100)}% above chain avg`);
-    else if (b.revenue >= avgRev * 0.9) pts.push(`revenue near chain avg`);
-    else pts.push(`revenue ${Math.round((1-b.revenue/avgRev)*100)}% below chain avg`);
+  const analyses = sorted.map((b, idx) => {
+    const rank = idx + 1;
+    const sections = [];
 
-    if (b.missingReports > 3) pts.push(`${b.missingReports} missing reports`);
-    else if (b.missingReports === 0) pts.push('full reporting compliance');
-
-    if (b.rph > 0 && avgRPH > 0) {
-      if (b.rph >= avgRPH * 1.1) pts.push(`high labor efficiency (${Math.round(b.rph)} PLN/hr)`);
-      else if (b.rph < avgRPH * 0.85) pts.push(`low labor efficiency (${Math.round(b.rph)} PLN/hr)`);
+    // ── Revenue ──────────────────────────────────────────────────
+    const revVsAvgPct = avgRev > 0 ? Math.round((b.revenue / avgRev - 1) * 100) : 0;
+    const dailyPace = daysElapsed > 0 ? Math.round(b.revenue / daysElapsed) : 0;
+    const revLines = [
+      `Total: ${fmtK(b.revenue)} PLN (${revVsAvgPct >= 0 ? '+' : ''}${revVsAvgPct}% vs chain avg of ${fmtK(avgRev)} PLN)`,
+      `Daily pace: ~${fmtK(dailyPace)} PLN/day over ${daysElapsed} days`,
+    ];
+    if (b.revGrowth !== null) {
+      const dir = b.revGrowth >= 0 ? 'up' : 'down';
+      revLines.push(`Month-over-month: ${dir} ${Math.abs(b.revGrowth).toFixed(1)}% vs last month (${fmtK(b.lastRev)} → ${fmtK(b.revenue)} PLN)`);
+    } else {
+      revLines.push('No last-month data for comparison');
     }
-    if (b.specPct > 15) pts.push(`SPEC cost too high (${b.specPct.toFixed(1)}%)`);
-    else if (b.specPct > 0 && b.specPct <= 10) pts.push(`lean SPEC cost (${b.specPct.toFixed(1)}%)`);
+    if (b.delivery > 0) {
+      revLines.push(`Delivery: ${fmtK(b.delivery)} PLN (${b.deliveryPct.toFixed(1)}% of revenue) · Direct: ${fmtK(b.revenue - b.delivery)} PLN`);
+    }
+    sections.push({ icon: '💰', label: 'Revenue', lines: revLines, status: revVsAvgPct >= 15 ? 'good' : revVsAvgPct >= -10 ? 'ok' : 'bad' });
 
-    if (b.estProfit < 0) pts.push('estimated loss this month');
-    else if (b.revenue > 0 && b.estProfit / b.revenue > 0.25) pts.push(`strong margin (${Math.round(b.estProfit/b.revenue*100)}%)`);
+    // ── Labor / Hours ─────────────────────────────────────────────
+    const laborLines = [];
+    if (b.hours > 0) {
+      const rphVsAvg = avgRPH > 0 ? Math.round((b.rph / avgRPH - 1) * 100) : null;
+      laborLines.push(`Total hours worked: ${b.hours}h`);
+      laborLines.push(`Revenue per hour: ${Math.round(b.rph)} PLN/hr${rphVsAvg !== null ? ` (${rphVsAvg >= 0 ? '+' : ''}${rphVsAvg}% vs chain avg of ${Math.round(avgRPH)} PLN/hr)` : ''}`);
+      if (b.workerHours && b.workerHours.length > 0) {
+        laborLines.push(`Workers: ${b.workerHours.map(w => `${w.name} ${w.hours}h`).join(', ')}`);
+      }
+      const laborStatus = rphVsAvg !== null ? (rphVsAvg >= 10 ? 'good' : rphVsAvg >= -10 ? 'ok' : 'bad') : 'ok';
+      sections.push({ icon: '👷', label: 'Labor', lines: laborLines, status: laborStatus });
+    } else {
+      sections.push({ icon: '👷', label: 'Labor', lines: ['No hours logged this period — labor data missing'], status: 'bad' });
+    }
 
-    return { name: b.name, pts, rank: idx + 1 };
+    // ── SPEC / Food Cost ──────────────────────────────────────────
+    const specLines = [];
+    if (b.specCost > 0) {
+      specLines.push(`SPEC spend: ${fmtK(b.specCost)} PLN`);
+      specLines.push(`Food cost ratio: ${b.specPct.toFixed(1)}% of revenue (target ≤12%)`);
+      if (b.chickenQty > 0) specLines.push(`Chicken ordered: ${b.chickenQty} kg`);
+      if (b.lambQty > 0) specLines.push(`Lamb ordered: ${b.lambQty} kg`);
+      const specStatus = b.specPct <= 10 ? 'good' : b.specPct <= 15 ? 'ok' : 'bad';
+      sections.push({ icon: '📦', label: 'SPEC / Food Cost', lines: specLines, status: specStatus });
+    } else {
+      sections.push({ icon: '📦', label: 'SPEC / Food Cost', lines: ['No SPEC orders recorded this period'], status: 'ok' });
+    }
+
+    // ── Cash Flow / Expenses ──────────────────────────────────────
+    const cfLines = [];
+    if (b.cfExpenses > 0) {
+      const expRatio = b.revenue > 0 ? (b.cfExpenses / b.revenue * 100).toFixed(1) : '—';
+      cfLines.push(`Total cash-flow expenses: ${fmtK(b.cfExpenses)} PLN`);
+      cfLines.push(`Expense ratio: ${expRatio}% of revenue (target ≤30%)`);
+      const cfStatus = b.cfExpenses / (b.revenue || 1) <= 0.3 ? 'good' : b.cfExpenses / (b.revenue || 1) <= 0.5 ? 'ok' : 'bad';
+      sections.push({ icon: '💸', label: 'Cash Flow & Expenses', lines: cfLines, status: cfStatus });
+    } else {
+      sections.push({ icon: '💸', label: 'Cash Flow & Expenses', lines: ['No cash flow records submitted'], status: 'bad' });
+    }
+
+    // ── Profitability ─────────────────────────────────────────────
+    const margin = b.revenue > 0 ? (b.estProfit / b.revenue * 100) : 0;
+    const profitLines = [
+      `Revenue: +${fmtK(b.revenue)} PLN`,
+      `CF Expenses: -${fmtK(b.cfExpenses)} PLN`,
+      `SPEC Cost: -${fmtK(b.specCost)} PLN`,
+      `Estimated Profit: ${b.estProfit >= 0 ? '+' : ''}${fmtK(b.estProfit)} PLN (${margin.toFixed(1)}% margin)`,
+    ];
+    const profitStatus = b.estProfit > 0 && margin >= 20 ? 'good' : b.estProfit >= 0 ? 'ok' : 'bad';
+    sections.push({ icon: '📊', label: 'Profitability', lines: profitLines, status: profitStatus });
+
+    // ── Reporting Compliance ──────────────────────────────────────
+    const compRate = daysElapsed > 0 ? Math.round(b.reportCount / daysElapsed * 100) : 0;
+    const compLines = [
+      `Reports submitted: ${b.reportCount} of ${daysElapsed} days (${compRate}% compliance)`,
+      b.missingReports === 0 ? 'Perfect compliance — no missing days' : `${b.missingReports} missing report${b.missingReports > 1 ? 's' : ''} — gaps in data`,
+    ];
+    const compStatus = b.missingReports === 0 ? 'good' : b.missingReports <= 2 ? 'ok' : 'bad';
+    sections.push({ icon: '📋', label: 'Reporting', lines: compLines, status: compStatus });
+
+    // ── Verdict ───────────────────────────────────────────────────
+    const goodCount = sections.filter(s => s.status === 'good').length;
+    const badCount = sections.filter(s => s.status === 'bad').length;
+    let verdict, verdictColor;
+    if (rank === 1) { verdict = `Top revenue branch this period. ${goodCount >= 3 ? 'Strong across most metrics.' : 'Room to improve on efficiency metrics.'}`; verdictColor = '#4CAF50'; }
+    else if (badCount >= 3) { verdict = `Underperforming on ${badCount} metrics. Needs immediate attention on costs and compliance.`; verdictColor = '#FF5252'; }
+    else if (badCount >= 2) { verdict = `Mixed performance. Address ${sections.filter(s=>s.status==='bad').map(s=>s.label).join(' and ')} to climb the ranking.`; verdictColor = '#FF9800'; }
+    else { verdict = `Solid mid-table performance. ${goodCount >= 2 ? 'Good ' + sections.filter(s=>s.status==='good').map(s=>s.label).join(' & ') + '.' : 'Focus on revenue growth to move up.'}`; verdictColor = '#FF9800'; }
+
+    return { name: b.name, rank, sections, verdict, verdictColor };
   });
 
-  return { top, bottom, reasons };
+  return { analyses, top: sorted[0], bottom: sorted[sorted.length - 1] };
 }
 
 export default function OwnerPerformanceScreen() {
@@ -231,57 +302,50 @@ export default function OwnerPerformanceScreen() {
         {sorted.length > 0 && (() => {
           const ai = buildAIAnalysis(sorted, daysElapsed, avgRev, avgRPH);
           if (!ai) return null;
+          const statusColor = st => st === 'good' ? '#4CAF50' : st === 'ok' ? '#FFB300' : '#FF5252';
+          const statusDot = st => st === 'good' ? '●' : st === 'ok' ? '●' : '●';
           return (
             <View style={s.aiCard}>
               <View style={s.aiHeader}>
                 <View style={s.aiBadge}><Text style={s.aiBadgeTxt}>AI</Text></View>
                 <Text style={s.aiTitle}>Ranking Analysis</Text>
+                <Text style={{fontSize:10,color:'rgba(255,255,255,0.4)',marginLeft:'auto'}}>{MONTHS[selM-1].slice(0,3)} {selY}</Text>
               </View>
 
-              <View style={s.aiSection}>
-                <Text style={s.aiSectionLabel}>TOP PERFORMER</Text>
-                <View style={s.aiRankLine}>
-                  <Text style={s.aiRankNum}>#1</Text>
-                  <View style={{flex:1}}>
-                    <Text style={s.aiRankBranch}>🥇 {ai.top.name}</Text>
-                    <Text style={s.aiRankReason}>{ai.reasons[0].pts.join(' · ')}</Text>
-                  </View>
-                </View>
-              </View>
+              {ai.analyses.map((a, ai_idx) => (
+                <View key={a.name}>
+                  {ai_idx > 0 && <View style={s.aiDivider}/>}
 
-              {ai.reasons.length > 1 && (
-                <>
-                  <View style={s.aiDivider}/>
-                  <View style={s.aiSection}>
-                    <Text style={s.aiSectionLabel}>FULL RANKING</Text>
-                    {ai.reasons.map((r, i) => (
-                      <View key={r.name} style={[s.aiRankLine, {marginBottom:6}]}>
-                        <Text style={s.aiRankNum}>#{r.rank}</Text>
-                        <View style={{flex:1}}>
-                          <Text style={s.aiRankBranch}>{r.name}</Text>
-                          <Text style={s.aiRankReason}>{r.pts.join(' · ')}</Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                </>
-              )}
-
-              {ai.reasons.length > 1 && (
-                <>
-                  <View style={s.aiDivider}/>
-                  <View style={s.aiSection}>
-                    <Text style={s.aiSectionLabel}>NEEDS ATTENTION</Text>
-                    <View style={s.aiRankLine}>
-                      <Text style={[s.aiRankNum, {color:'#FF6B6B'}]}>#{ai.bottom.reportCount>0?sorted.length:'?'}</Text>
-                      <View style={{flex:1}}>
-                        <Text style={[s.aiRankBranch, {color:'#FF6B6B'}]}>⚠️ {ai.bottom.name}</Text>
-                        <Text style={s.aiRankReason}>{ai.reasons[ai.reasons.length-1].pts.join(' · ')}</Text>
-                      </View>
+                  {/* Branch header */}
+                  <View style={[s.aiRankLine, {alignItems:'center', marginBottom:8}]}>
+                    <Text style={[s.aiRankNum, {color: a.rank===1?'#FFD700':a.rank===2?'#C0C0C0':a.rank===3?'#CD7F32':'#6C63FF'}]}>#{a.rank}</Text>
+                    <Text style={[s.aiRankBranch, {fontSize:15}]}>{a.name}</Text>
+                    <View style={[s.aiBadge, {marginLeft:'auto', backgroundColor: a.verdictColor+'33', borderWidth:1, borderColor:a.verdictColor}]}>
+                      <Text style={[s.aiBadgeTxt, {color:a.verdictColor}]}>{a.sections.filter(s=>s.status==='good').length}/{a.sections.length} good</Text>
                     </View>
                   </View>
-                </>
-              )}
+
+                  {/* Verdict */}
+                  <View style={[s.aiVerdictBox, {borderLeftColor: a.verdictColor}]}>
+                    <Text style={s.aiVerdictTxt}>{a.verdict}</Text>
+                  </View>
+
+                  {/* Sections */}
+                  {a.sections.map((sec, si) => (
+                    <View key={si} style={s.aiMetricBlock}>
+                      <View style={s.aiMetricHeader}>
+                        <Text style={s.aiMetricIcon}>{sec.icon}</Text>
+                        <Text style={s.aiMetricLabel}>{sec.label}</Text>
+                        <Text style={[s.aiStatusDot, {color: statusColor(sec.status)}]}>{statusDot(sec.status)}</Text>
+                        <Text style={[s.aiStatusTxt, {color: statusColor(sec.status)}]}>{sec.status.toUpperCase()}</Text>
+                      </View>
+                      {sec.lines.map((line, li) => (
+                        <Text key={li} style={s.aiMetricLine}>{'  '}{line}</Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              ))}
             </View>
           );
         })()}
@@ -486,16 +550,22 @@ const s = StyleSheet.create({
   workerHoursRow:{flexDirection:'row',justifyContent:'space-between',paddingVertical:3,borderBottomWidth:1,borderBottomColor:'#E3E8FF'},
   workerHoursName:{fontSize:12,color:'#333'},
   workerHoursVal:{fontSize:12,fontWeight:'700',color:'#3949AB'},
-  aiCard:{backgroundColor:'#1A1A2E',borderRadius:16,padding:16,marginBottom:16},
+  aiCard:{backgroundColor:'#0F0F1A',borderRadius:16,padding:16,marginBottom:16},
   aiHeader:{flexDirection:'row',alignItems:'center',gap:8,marginBottom:12},
-  aiTitle:{fontSize:13,fontWeight:'800',color:'#fff',letterSpacing:0.5},
-  aiBadge:{backgroundColor:'#6C63FF',borderRadius:6,paddingHorizontal:8,paddingVertical:2},
-  aiBadgeTxt:{fontSize:10,fontWeight:'800',color:'#fff'},
-  aiSection:{marginBottom:10},
-  aiSectionLabel:{fontSize:11,fontWeight:'800',color:'rgba(255,255,255,0.5)',letterSpacing:0.8,marginBottom:4},
-  aiRankLine:{flexDirection:'row',alignItems:'flex-start',gap:6,marginBottom:4},
-  aiRankNum:{fontSize:13,fontWeight:'900',color:'#6C63FF',width:24},
-  aiRankBranch:{fontSize:13,fontWeight:'700',color:'#fff'},
-  aiRankReason:{fontSize:12,color:'rgba(255,255,255,0.65)',lineHeight:17,marginTop:1},
-  aiDivider:{height:1,backgroundColor:'rgba(255,255,255,0.1)',marginVertical:8},
+  aiTitle:{fontSize:14,fontWeight:'800',color:'#fff',letterSpacing:0.5},
+  aiBadge:{backgroundColor:'#6C63FF',borderRadius:6,paddingHorizontal:8,paddingVertical:3},
+  aiBadgeTxt:{fontSize:10,fontWeight:'900',color:'#fff',letterSpacing:0.5},
+  aiRankLine:{flexDirection:'row',alignItems:'flex-start',gap:8,marginBottom:4},
+  aiRankNum:{fontSize:16,fontWeight:'900',color:'#6C63FF',width:28},
+  aiRankBranch:{fontSize:14,fontWeight:'800',color:'#fff'},
+  aiDivider:{height:1,backgroundColor:'rgba(255,255,255,0.08)',marginVertical:14},
+  aiVerdictBox:{borderLeftWidth:3,paddingLeft:10,marginBottom:10,marginTop:4},
+  aiVerdictTxt:{fontSize:12,color:'rgba(255,255,255,0.75)',lineHeight:18,fontStyle:'italic'},
+  aiMetricBlock:{marginBottom:8,backgroundColor:'rgba(255,255,255,0.04)',borderRadius:8,padding:8},
+  aiMetricHeader:{flexDirection:'row',alignItems:'center',gap:6,marginBottom:4},
+  aiMetricIcon:{fontSize:13},
+  aiMetricLabel:{fontSize:12,fontWeight:'800',color:'rgba(255,255,255,0.85)',flex:1},
+  aiStatusDot:{fontSize:10,marginLeft:'auto'},
+  aiStatusTxt:{fontSize:10,fontWeight:'800',letterSpacing:0.5},
+  aiMetricLine:{fontSize:11,color:'rgba(255,255,255,0.6)',lineHeight:17,marginTop:1},
 });
