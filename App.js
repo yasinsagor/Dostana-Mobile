@@ -5,9 +5,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/hooks/useAuth';
 import RootNavigator from './src/navigation/RootNavigator';
 
-// DIAGNOSTIC: temporarily show a plain screen first to confirm native layer works
-const DIAGNOSTIC_MODE = true;
-
 class ErrorBoundary extends React.Component {
   state = { error: null };
   componentDidMount() {
@@ -34,15 +31,6 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App() {
-  if (DIAGNOSTIC_MODE) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontSize: 28, fontWeight: 'bold' }}>Dostana Kebab</Text>
-        <Text style={{ color: '#E8891A', fontSize: 16, marginTop: 12 }}>Native layer OK</Text>
-      </View>
-    );
-  }
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -55,4 +43,3 @@ export default function App() {
     </GestureHandlerRootView>
   );
 }
-
