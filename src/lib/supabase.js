@@ -114,3 +114,37 @@ export async function fetchSpecProducts() {
   if (error) throw error;
   return data;
 }
+
+// Branch workers — stored in 'branch_workers' table (branch, name, active)
+// Falls back to distinct staff_name from schedules if table doesn't exist yet
+export async function fetchBranchWorkers(branch) {
+  try {
+    const { data, error } = await supabase
+      .from('branch_workers')
+      .select('name')
+      .eq('branch', branch)
+      .eq('active', true)
+      .order('name');
+    if (!error && data && data.length > 0) return data.map(r => r.name);
+  } catch {}
+  // Fallback: distinct names from schedules
+  try {
+    const { data } = await supabase
+      .from('schedules')
+      .select('staff_name')
+      .eq('branch', branch);
+    if (data && data.length > 0) {
+      return [...new Set(data.map(r => r.staff_name).filter(Boolean))].sort();
+    }
+  } catch {}
+  return [];
+}
+
+export async function saveBranchWorkers(branch, names) {
+  try {
+    // Upsert each name
+    const rows = names.filter(Boolean).map(name => ({ branch, name, active: true }));
+    if (rows.length === 0) return;
+    await supabase.from('branch_workers').upsert(rows, { onConflict: 'branch,name', ignoreDuplicates: false });
+  } catch {}
+}

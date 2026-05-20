@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase, insertDailyReport, fetchDailyReports, fetchSpecOrders } from '../../lib/supabase';
+import { supabase, insertDailyReport, fetchDailyReports, fetchSpecOrders, fetchBranchWorkers, saveBranchWorkers } from '../../lib/supabase';
 import { COLORS } from '../../constants';
 
 /* ─── constants ─────────────────────────────────────────────── */
@@ -93,20 +93,24 @@ export default function ManagerSubmitScreen() {
   const [draftLoaded,  setDraftLoaded]  = useState(false);
   const autoSaveTimer = useRef(null);
 
-  /* ── load saved worker names (persisted across days) ── */
+  /* ── load worker names from DB (persisted across days & devices) ── */
   useEffect(() => {
-    AsyncStorage.getItem(`workers_${branch}`).then(raw => {
-      if (raw) {
-        const saved = JSON.parse(raw);
-        setWorkers(saved.map(name => ({ name, hours: '' })));
-      }
-    }).catch(()=>{});
+    fetchBranchWorkers(branch).then(names => {
+      if (names.length > 0) setWorkers(names.map(name => ({ name, hours: '' })));
+    }).catch(() => {
+      // fallback to AsyncStorage
+      AsyncStorage.getItem(`workers_${branch}`).then(raw => {
+        if (raw) setWorkers(JSON.parse(raw).map(name => ({ name, hours: '' })));
+      }).catch(() => {});
+    });
   }, [branch]);
 
-  /* save worker names whenever they change */
+  /* save worker names to DB + AsyncStorage whenever they change */
   useEffect(() => {
     const names = workers.map(w => w.name).filter(Boolean);
-    if (names.length) AsyncStorage.setItem(`workers_${branch}`, JSON.stringify(names)).catch(()=>{});
+    if (!names.length) return;
+    saveBranchWorkers(branch, names);
+    AsyncStorage.setItem(`workers_${branch}`, JSON.stringify(names)).catch(() => {});
   }, [workers, branch]);
 
   /* ── load draft + check existing submissions ── */
