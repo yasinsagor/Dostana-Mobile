@@ -35,6 +35,7 @@ export default function OwnerDashboardScreen() {
   const [todayCashflow, setTodayCashflow] = useState([]);
   const [todaySpec, setTodaySpec] = useState([]);
   const [trendDaily, setTrendDaily] = useState([]);
+  const [showBranches, setShowBranches] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -160,8 +161,14 @@ export default function OwnerDashboardScreen() {
         </View>
 
         {/* 4. BRANCH STATUS */}
-        <Text style={s.secTitle}>🏆 Branch Status</Text>
-        {branchStatus.map((b, i) => {
+        <TouchableOpacity style={s.secTitleRow} onPress={() => setShowBranches(v => !v)} activeOpacity={0.7}>
+          <Text style={s.secTitle}>🏆 Branch Status</Text>
+          <View style={s.secChevronWrap}>
+            <Text style={s.secBadge}>{submittedSet.size}/{BRANCHES.length}</Text>
+            <Text style={s.secChevron}>{showBranches ? '▲' : '▼'}</Text>
+          </View>
+        </TouchableOpacity>
+        {showBranches && branchStatus.map((b, i) => {
           const medal = b.submitted ? (i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : '') : '';
           return (
             <View key={b.name} style={[s.branchCard, !b.submitted && { opacity: 0.6 }]}>
@@ -233,6 +240,10 @@ const s = StyleSheet.create({
   logoutBtn: { backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#E53935', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   logoutTxt: { color: '#E53935', fontWeight: '700', fontSize: 13 },
   secTitle: { fontSize: 15, fontWeight: '800', color: '#333', marginTop: 20, marginBottom: 10 },
+  secTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 },
+  secChevronWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  secBadge: { fontSize: 12, fontWeight: '700', color: '#fff', backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  secChevron: { fontSize: 12, color: '#999' },
   alertCard: { flexDirection: 'row', alignItems: 'flex-start', borderRadius: 10, padding: 12, gap: 10 },
   alertError: { backgroundColor: '#FFEBEE' },
   alertWarn: { backgroundColor: '#FFF8E1' },
