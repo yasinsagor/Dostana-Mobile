@@ -23,6 +23,19 @@
         "backgroundColor": "#1A1A1A"
       }
     },
-    "plugins": []
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24,
+            "ndkVersion": "27.2.12479018",
+            "enableProguardInReleaseBuilds": false
+          }
+        }
+      ]
+    ]
   }
 }
