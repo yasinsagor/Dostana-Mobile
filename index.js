@@ -1,17 +1,14 @@
-import 'react-native-gesture-handler';
-import { enableScreens } from 'react-native-screens';
+import React from 'react';
+import { View, Text } from 'react-native';
 import { registerRootComponent } from 'expo';
 
-import App from './App';
-
-// Catch any JS crash that happens before React mounts
-if (global.ErrorUtils) {
-  const prev = global.ErrorUtils.getGlobalHandler();
-  global.ErrorUtils.setGlobalHandler((error, isFatal) => {
-    global.__FATAL_ERROR__ = (error?.toString() || 'unknown') + '\n\n' + (error?.stack || '');
-    if (prev) prev(error, isFatal);
-  });
+function App() {
+  return (
+    <View style={{ flex: 1, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: '#fff', fontSize: 28, fontWeight: 'bold' }}>Dostana Kebab</Text>
+      <Text style={{ color: '#E8891A', fontSize: 16, marginTop: 12 }}>WORKS - Native OK</Text>
+    </View>
+  );
 }
 
-enableScreens();
 registerRootComponent(App);
