@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Modal, TextInput,
-  Alert, KeyboardAvoidingView, Platform,
+  Alert, KeyboardAvoidingView, Platform, Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../hooks/useAuth';
@@ -77,7 +77,7 @@ const card = StyleSheet.create({
 });
 
 /* ─── horizontal scrollable inner tab bar ───────────────────── */
-const INNER_TABS = ['Summary', 'Daily', 'Cash', 'SPEC', 'Rank', 'Staff'];
+const INNER_TABS = ['Summary', 'Daily', 'Cash', 'SPEC', 'Rank', 'Staff', 'Report'];
 function InnerTabBar({ active, onPress }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={itb.scroll} contentContainerStyle={itb.container}>
@@ -119,6 +119,16 @@ export default function ManagerMyDataScreen() {
   /* edit modal */
   const [editModal, setEditModal] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  /* report filters */
+  const [rPeriod, setRPeriod]   = useState('month');
+  const [rFrom,   setRFrom]     = useState('');
+  const [rTo,     setRTo]       = useState('');
+  const [rSecs,   setRSecs]     = useState({ daily:true, cashflow:true, hours:true, platforms:true, payments:true });
+  const [rPlat,   setRPlat]     = useState({ wolt:true, glovo:true, uber_eats:true, bolt:true, pyszne:true });
+  const [rPay,    setRPay]      = useState({ cash:true, card:true });
+  const [reportText, setReportText] = useState('');
+  const [reportReady, setReportReady] = useState(false);
 
   const { from, to } = monthRange();
   const { from: lfrom, to: lto } = lastMonthRange();
@@ -211,6 +221,164 @@ export default function ManagerMyDataScreen() {
         }
       },
     ]);
+  }
+
+  /* ── report generation ── */
+  function resolveRange() {
+    if (rPeriod === 'today')     return { f: today, t: today };
+    if (rPeriod === 'week')      { const d=new Date(); d.setDate(d.getDate()-6); return { f:d.toISOString().slice(0,10), t:today }; }
+    if (rPeriod === 'month')     return { f: from, t: to };
+    if (rPeriod === 'lastMonth') return { f: lfrom, t: lto };
+    return { f: rFrom || from, t: rTo || today };
+  }
+
+  function col(str, w) { return String(str).padEnd(w).slice(0, w); }
+  function rgt(str, w) { return String(str).padStart(w).slice(-w); }
+  function line(char='─', n=42) { return char.repeat(n); }
+  function fmtDate(iso) { if(!iso) return ''; const [y,m,d]=iso.split('-'); return `${d}.${m}.${y.slice(2)}`; }
+
+  function buildReport() {
+    const { f, t } = resolveRange();
+    const filtDr = drAll.filter(r => r.date >= f && r.date <= t);
+    const filtCf = cfAll.filter(r => r.date >= f && r.date <= t);
+    const filtSpec = spec.filter(o => (o.date||'') >= f && (o.date||'') <= t);
+
+    const lines = [];
+    lines.push(`DOSTANA KEBAB — ${branch}`);
+    lines.push(`📊 Report: ${fmtDate(f)} → ${fmtDate(t)}`);
+    lines.push(`Generated: ${fmtDate(today)}`);
+    lines.push(line('═'));
+
+    /* ── DAILY SALES ── */
+    if (rSecs.daily && filtDr.length > 0) {
+      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+      const totalDeliv = filtDr.reduce((s,r)=>s+DELIVERY_KEYS.reduce((d,k)=>d+(r[k]||0),0),0);
+      const totalCard = filtDr.reduce((s,r)=>s+(r.card||r.karta||0),0);
+      const totalCash = filtDr.reduce((s,r)=>s+(r.cash||r.gotowka||0),0);
+      lines.push('');
+      lines.push('📋 DAILY SALES');
+      lines.push(line());
+      lines.push(`Total Revenue : ${fmtK(totalRev)} PLN`);
+      lines.push(`Days Reported : ${filtDr.length}`);
+      lines.push(`Daily Average : ${fmtK(filtDr.length>0?Math.round(totalRev/filtDr.length):0)} PLN`);
+      lines.push('');
+      lines.push(`${col('DATE',9)}${rgt('REVENUE',9)}${rgt('CASH',7)}${rgt('CARD',7)}${rgt('DELIV',7)}${rgt('HRS',5)}`);
+      lines.push(line('─', 44));
+      [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+        const rv = r.total_revenue||r.revenue||0;
+        const cash = r.cash||r.gotowka||0;
+        const card = r.card||r.karta||0;
+        const deliv = DELIVERY_KEYS.reduce((d,k)=>d+(r[k]||0),0);
+        const hrs = r.total_hours||r.hours||0;
+        lines.push(`${col(fmtDate(r.date),9)}${rgt(fmtK(rv),9)}${rgt(fmtK(cash),7)}${rgt(fmtK(card),7)}${rgt(fmtK(deliv),7)}${rgt(hrs+'h',5)}`);
+      });
+      lines.push(line('─', 44));
+      lines.push(`${col('TOTAL',9)}${rgt(fmtK(totalRev),9)}${rgt(fmtK(totalCash),7)}${rgt(fmtK(totalCard),7)}${rgt(fmtK(totalDeliv),7)}`);
+    }
+
+    /* ── PAYMENT METHODS ── */
+    if (rSecs.payments && filtDr.length > 0) {
+      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+      lines.push('');
+      lines.push('💳 PAYMENT METHODS');
+      lines.push(line());
+      const methods = [
+        { k:'cash',  lbl:'Cash',  val: filtDr.reduce((s,r)=>s+(r.cash||r.gotowka||0),0) },
+        { k:'card',  lbl:'Card',  val: filtDr.reduce((s,r)=>s+(r.card||r.karta||0),0) },
+      ];
+      methods.filter(m=>rPay[m.k]).forEach(m => {
+        const pct = totalRev>0?Math.round(m.val/totalRev*100):0;
+        lines.push(`${col(m.lbl,10)} ${rgt(fmtK(m.val),9)} PLN  (${pct}%)`);
+      });
+    }
+
+    /* ── PLATFORMS ── */
+    if (rSecs.platforms && filtDr.length > 0) {
+      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+      lines.push('');
+      lines.push('🛵 ONLINE PLATFORMS');
+      lines.push(line());
+      DELIVERY_KEYS.filter(k=>rPlat[k]).forEach(k => {
+        const val = filtDr.reduce((s,r)=>s+(r[k]||0),0);
+        if (val === 0) return;
+        const pct = totalRev>0?Math.round(val/totalRev*100):0;
+        lines.push(`${col(DELIVERY_LABELS[k],10)} ${rgt(fmtK(val),9)} PLN  (${pct}%)`);
+      });
+      const totalDeliv = DELIVERY_KEYS.filter(k=>rPlat[k]).reduce((s,k)=>s+filtDr.reduce((d,r)=>d+(r[k]||0),0),0);
+      const pctD = totalRev>0?Math.round(totalDeliv/totalRev*100):0;
+      lines.push(line('─', 44));
+      lines.push(`${col('TOTAL',10)} ${rgt(fmtK(totalDeliv),9)} PLN  (${pctD}%)`);
+    }
+
+    /* ── CASH FLOW ── */
+    if (rSecs.cashflow && filtCf.length > 0) {
+      const totalExp = filtCf.reduce((s,r)=>s+(r.total_expenses||0),0);
+      lines.push('');
+      lines.push('💰 CASH FLOW');
+      lines.push(line());
+      lines.push(`Total Expenses: ${fmtK(totalExp)} PLN  (${filtCf.length} days)`);
+      lines.push('');
+      // category totals across period
+      const catMap = {};
+      filtCf.forEach(r => {
+        (Array.isArray(r.expenses)?r.expenses:[]).forEach(e => {
+          catMap[e.name] = (catMap[e.name]||0) + parseFloat(e.amount||0);
+        });
+      });
+      Object.entries(catMap).sort((a,b)=>b[1]-a[1]).forEach(([cat,val]) => {
+        const pct = totalExp>0?Math.round(val/totalExp*100):0;
+        lines.push(`${col(cat,14)} ${rgt(fmtK(val),8)} PLN  (${pct}%)`);
+      });
+      lines.push('');
+      lines.push(`${col('DATE',9)}${rgt('TOTAL',9)}  CATEGORIES`);
+      lines.push(line('─', 44));
+      [...filtCf].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+        const exps = Array.isArray(r.expenses)?r.expenses:[];
+        const cats = exps.slice(0,3).map(e=>`${e.name}:${fmtK(e.amount)}`).join(' ');
+        lines.push(`${col(fmtDate(r.date),9)}${rgt(fmtK(r.total_expenses||0),9)}  ${cats}`);
+      });
+    }
+
+    /* ── HOURS ── */
+    if (rSecs.hours && filtDr.length > 0) {
+      const totalHrs = filtDr.reduce((s,r)=>s+(r.total_hours||r.hours||0),0);
+      const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
+      const revPerHr = totalHrs>0?Math.round(totalRev/totalHrs):0;
+      lines.push('');
+      lines.push('⏱ WORKING HOURS');
+      lines.push(line());
+      lines.push(`Total Hours   : ${totalHrs}h`);
+      lines.push(`Revenue/Hour  : ${fmtK(revPerHr)} PLN`);
+      lines.push(`Est. Labor    : ${fmtK(totalHrs*22)} PLN  (22 PLN/hr)`);
+      lines.push('');
+      lines.push(`${col('DATE',9)}${rgt('HOURS',7)}${rgt('REVENUE',10)}${rgt('REV/HR',8)}`);
+      lines.push(line('─', 36));
+      [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+        const h = r.total_hours||r.hours||0;
+        const rv = r.total_revenue||r.revenue||0;
+        const rph = h>0?Math.round(rv/h):0;
+        lines.push(`${col(fmtDate(r.date),9)}${rgt(h+'h',7)}${rgt(fmtK(rv),10)}${rgt(fmtK(rph),8)}`);
+      });
+    }
+
+    lines.push('');
+    lines.push(line('═'));
+    lines.push('Dostana Management App');
+    return lines.join('\n');
+  }
+
+  function generateReport() {
+    const { f, t } = resolveRange();
+    if (!f || !t) { Alert.alert('Date Error', 'Please enter valid from/to dates.'); return; }
+    const text = buildReport();
+    setReportText(text);
+    setReportReady(true);
+  }
+
+  async function shareReport() {
+    try {
+      await Share.share({ message: reportText, title: `Dostana Report — ${branch}` });
+    } catch (e) { Alert.alert('Share failed', e.message); }
   }
 
   /* ── derived (Summary tab) ── */
@@ -588,6 +756,94 @@ export default function ManagerMyDataScreen() {
 
         </>)}
 
+        {/* ══ REPORT ═══════════════════════════════════════════ */}
+        {tab === 'Report' && (<>
+
+          {/* Period */}
+          <SectionCard title="📅 Period" color="#1565C0">
+            <View style={rp.chipRow}>
+              {[['today','Today'],['week','7 Days'],['month','This Month'],['lastMonth','Last Month'],['custom','Custom']].map(([k,lbl])=>(
+                <TouchableOpacity key={k} style={[rp.chip, rPeriod===k && rp.chipOn]} onPress={()=>{setRPeriod(k);setReportReady(false);}}>
+                  <Text style={[rp.chipTxt, rPeriod===k && rp.chipTxtOn]}>{lbl}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {rPeriod==='custom'&&(
+              <View style={{flexDirection:'row',gap:10,marginTop:10,alignItems:'center'}}>
+                <View style={{flex:1}}>
+                  <Text style={rp.inputLbl}>From (YYYY-MM-DD)</Text>
+                  <TextInput style={rp.dateInput} value={rFrom} onChangeText={v=>{setRFrom(v);setReportReady(false);}} placeholder="2026-05-01"/>
+                </View>
+                <View style={{flex:1}}>
+                  <Text style={rp.inputLbl}>To (YYYY-MM-DD)</Text>
+                  <TextInput style={rp.dateInput} value={rTo} onChangeText={v=>{setRTo(v);setReportReady(false);}} placeholder="2026-05-20"/>
+                </View>
+              </View>
+            )}
+          </SectionCard>
+
+          {/* Sections */}
+          <SectionCard title="📋 Include Sections" color="#555">
+            <View style={rp.chipRow}>
+              {[['daily','Daily Sales'],['cashflow','Cash Flow'],['hours','Hours'],['platforms','Platforms'],['payments','Payments']].map(([k,lbl])=>(
+                <TouchableOpacity key={k} style={[rp.chip, rSecs[k] && rp.chipOn]} onPress={()=>{setRSecs(p=>({...p,[k]:!p[k]}));setReportReady(false);}}>
+                  <Text style={[rp.chipTxt, rSecs[k] && rp.chipTxtOn]}>{rSecs[k]?'✓ ':''}{lbl}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </SectionCard>
+
+          {/* Platform filter */}
+          {rSecs.platforms&&(
+            <SectionCard title="🛵 Platforms" color="#E65100">
+              <View style={rp.chipRow}>
+                {Object.keys(rPlat).map(k=>(
+                  <TouchableOpacity key={k} style={[rp.chip, rPlat[k] && {backgroundColor:'#FFF3E0',borderColor:'#E65100'}]} onPress={()=>{setRPlat(p=>({...p,[k]:!p[k]}));setReportReady(false);}}>
+                    <Text style={[rp.chipTxt, rPlat[k] && {color:'#E65100',fontWeight:'800'}]}>{rPlat[k]?'✓ ':''}{DELIVERY_LABELS[k]}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </SectionCard>
+          )}
+
+          {/* Payment filter */}
+          {rSecs.payments&&(
+            <SectionCard title="💳 Payment Methods" color="#1B5E20">
+              <View style={rp.chipRow}>
+                {[['cash','Cash'],['card','Card']].map(([k,lbl])=>(
+                  <TouchableOpacity key={k} style={[rp.chip, rPay[k] && {backgroundColor:'#E8F5E9',borderColor:'#1B5E20'}]} onPress={()=>{setRPay(p=>({...p,[k]:!p[k]}));setReportReady(false);}}>
+                    <Text style={[rp.chipTxt, rPay[k] && {color:'#1B5E20',fontWeight:'800'}]}>{rPay[k]?'✓ ':''}{lbl}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </SectionCard>
+          )}
+
+          {/* Generate button */}
+          <TouchableOpacity style={rp.generateBtn} onPress={generateReport} activeOpacity={0.85}>
+            <Text style={rp.generateTxt}>⚡ Generate Report</Text>
+          </TouchableOpacity>
+
+          {/* Report preview */}
+          {reportReady&&(
+            <View style={rp.previewCard}>
+              <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                <Text style={rp.previewTitle}>Report Preview</Text>
+                <TouchableOpacity style={rp.shareBtn} onPress={shareReport} activeOpacity={0.8}>
+                  <Text style={rp.shareBtnTxt}>📤 Share</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={rp.previewScroll} horizontal showsHorizontalScrollIndicator={false}>
+                <Text style={rp.previewTxt} selectable>{reportText}</Text>
+              </ScrollView>
+              <TouchableOpacity style={[rp.shareBtn,{marginTop:12,alignSelf:'stretch',alignItems:'center',paddingVertical:14}]} onPress={shareReport} activeOpacity={0.8}>
+                <Text style={rp.shareBtnTxt}>📤 Share / Export Full Report</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+        </>)}
+
       </ScrollView>
 
       {/* ══ EDIT MODAL ════════════════════════════════════════ */}
@@ -696,4 +952,23 @@ const s = StyleSheet.create({
   fieldLabel: { flex: 1, fontSize: 11, fontWeight: '700', color: '#555' },
   fieldInput: { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, minWidth: 110, fontSize: 14, textAlign: 'right', color: '#222' },
   modalBtn: { borderRadius: 12, padding: 14, alignItems: 'center', justifyContent: 'center' },
+});
+
+/* ─── report tab styles ─────────────────────────────────────── */
+const rp = StyleSheet.create({
+  chipRow:      { flexDirection:'row', flexWrap:'wrap', gap:8 },
+  chip:         { paddingHorizontal:12, paddingVertical:7, borderRadius:20, borderWidth:1.5, borderColor:'#DDD', backgroundColor:'#F8F8F8' },
+  chipOn:       { backgroundColor:'#E8F5E9', borderColor:COLORS.primary },
+  chipTxt:      { fontSize:12, color:'#888', fontWeight:'600' },
+  chipTxtOn:    { color:COLORS.primary, fontWeight:'800' },
+  inputLbl:     { fontSize:10, color:'#aaa', fontWeight:'700', marginBottom:4 },
+  dateInput:    { borderWidth:1, borderColor:'#E0E0E0', borderRadius:8, paddingHorizontal:10, paddingVertical:8, fontSize:13, color:'#333' },
+  generateBtn:  { backgroundColor:COLORS.primary, borderRadius:14, paddingVertical:16, alignItems:'center', marginTop:4, marginBottom:14 },
+  generateTxt:  { color:'#fff', fontSize:15, fontWeight:'900', letterSpacing:0.5 },
+  previewCard:  { backgroundColor:'#fff', borderRadius:14, padding:16, marginBottom:20, shadowColor:'#000', shadowOpacity:0.06, shadowRadius:6, elevation:2 },
+  previewTitle: { fontSize:13, fontWeight:'900', color:'#333' },
+  previewScroll:{ maxHeight:360 },
+  previewTxt:   { fontFamily: Platform.OS==='ios'?'Courier New':'monospace', fontSize:11, color:'#333', lineHeight:17 },
+  shareBtn:     { backgroundColor:COLORS.primary, borderRadius:10, paddingHorizontal:16, paddingVertical:8 },
+  shareBtnTxt:  { color:'#fff', fontWeight:'800', fontSize:13 },
 });
