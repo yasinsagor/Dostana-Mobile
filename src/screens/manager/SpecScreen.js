@@ -257,6 +257,7 @@ export default function ManagerSpecScreen() {
   const draftKey = `spec_draft_${branch}_${today}`;
 
   const [products,  setProducts]  = useState([]);
+  const [productOrder, setProductOrder] = useState([]); // array of product IDs in custom order
   const [quantities,setQty]       = useState({});
   const [lastOrder, setLastOrder] = useState(null); // { items: [...] }
   const [activeTab, setActiveTab] = useState('All');
@@ -277,7 +278,14 @@ export default function ManagerSpecScreen() {
       try {
         // products
         const prods = await fetchSpecProducts();
-        setProducts(prods && prods.length > 0 ? prods : FALLBACK_PRODUCTS);
+        const finalProds = prods && prods.length > 0 ? prods : FALLBACK_PRODUCTS;
+        setProducts(finalProds);
+        // load saved order
+        try {
+          const savedOrder = await AsyncStorage.getItem(`spec_order_${branch}`);
+          if (savedOrder) setProductOrder(JSON.parse(savedOrder));
+          else setProductOrder(finalProds.map(p => p.id));
+        } catch { setProductOrder(finalProds.map(p => p.id)); }
 
         // check if already submitted today
         const { data:todaySpec } = await supabase
@@ -362,12 +370,40 @@ export default function ManagerSpecScreen() {
   /* ── derived ── */
   const cats = ['All', ...new Set(products.map(p => p.category || p.cat || 'Other'))];
 
-  const filtered = products.filter(p => {
+  // apply custom order then filter
+  const sortedProducts = productOrder.length > 0
+    ? [...products].sort((a, b) => {
+        const ai = productOrder.indexOf(a.id);
+        const bi = productOrder.indexOf(b.id);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      })
+    : products;
+
+  const filtered = sortedProducts.filter(p => {
     const cat = p.category || p.cat || 'Other';
     const matchTab  = activeTab === 'All' || cat === activeTab;
     const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
     return matchTab && matchSearch;
   });
+
+  function moveProduct(productId, direction) {
+    const ids = productOrder.length > 0 ? [...productOrder] : products.map(p => p.id);
+    // work within filtered list so ↑↓ moves within current tab/search view
+    const filteredIds = filtered.map(p => p.id);
+    const posInFiltered = filteredIds.indexOf(productId);
+    if (direction === 'up' && posInFiltered <= 0) return;
+    if (direction === 'down' && posInFiltered >= filteredIds.length - 1) return;
+    const swapWith = filteredIds[direction === 'up' ? posInFiltered - 1 : posInFiltered + 1];
+    const idxA = ids.indexOf(productId);
+    const idxB = ids.indexOf(swapWith);
+    if (idxA === -1 || idxB === -1) return;
+    [ids[idxA], ids[idxB]] = [ids[idxB], ids[idxA]];
+    setProductOrder(ids);
+    AsyncStorage.setItem(`spec_order_${branch}`, JSON.stringify(ids)).catch(() => {});
+  }
 
   const isMeatSpecialProd = p => p.name==='Kurczak'||p.name==='Baranina';
   const meatTotalKg = (p) => KG_SIZES.reduce((s,k)=>s+(n((kgQtys[p.id]||{})[k]))*parseInt(k),0);
@@ -548,34 +584,62 @@ export default function ManagerSpecScreen() {
           <View style={s.empty}><Text style={s.emptyTxt}>No products found</Text></View>
         ) : (
           <View style={s.section}>
-            {filtered.map(p => {
+            {filtered.map((p, idx) => {
               const cat = p.category || p.cat || 'Other';
               const isMeat = cat.toLowerCase().includes('mięso') || cat.toLowerCase().includes('meat') ||
                              (p.unit||'').toLowerCase() === 'kg';
               const lastItem = lastOrder?.items?.find(it=>it.name===p.name);
+              const moveButtons = (
+                <View style={s.moveCol}>
+                  <TouchableOpacity
+                    style={[s.moveBtn, idx === 0 && s.moveBtnDisabled]}
+                    onPress={() => moveProduct(p.id, 'up')}
+                    disabled={idx === 0}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={[s.moveArrow, idx === 0 && {color:'#DDD'}]}>▲</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.moveBtn, idx === filtered.length - 1 && s.moveBtnDisabled]}
+                    onPress={() => moveProduct(p.id, 'down')}
+                    disabled={idx === filtered.length - 1}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={[s.moveArrow, idx === filtered.length - 1 && {color:'#DDD'}]}>▼</Text>
+                  </TouchableOpacity>
+                </View>
+              );
               if (isMeatSpecialProd(p)) {
                 const lastTotalKg = lastItem
                   ? parseFloat(lastItem.totalKg||0) || (parseFloat(lastItem.qty||0)*(parseInt((lastItem.unit||'10kg').replace('kg',''))||10))
                   : 0;
                 return (
-                  <MeatProductRow
-                    key={p.id}
-                    product={p}
-                    kgQtys={kgQtys[p.id]||{}}
-                    onChange={v => setKgQtys(k=>({...k,[p.id]:v}))}
-                    lastTotalKg={lastTotalKg}
-                  />
+                  <View key={p.id} style={s.rowWithMove}>
+                    {moveButtons}
+                    <View style={{flex:1}}>
+                      <MeatProductRow
+                        product={p}
+                        kgQtys={kgQtys[p.id]||{}}
+                        onChange={v => setKgQtys(k=>({...k,[p.id]:v}))}
+                        lastTotalKg={lastTotalKg}
+                      />
+                    </View>
+                  </View>
                 );
               }
               return (
-                <ProductRow
-                  key={p.id}
-                  product={p}
-                  qty={quantities[p.id]||''}
-                  onChange={v => setQty(q=>({...q,[p.id]:v}))}
-                  lastQty={lastItem?.qty}
-                  isMeat={isMeat}
-                />
+                <View key={p.id} style={s.rowWithMove}>
+                  {moveButtons}
+                  <View style={{flex:1}}>
+                    <ProductRow
+                      product={p}
+                      qty={quantities[p.id]||''}
+                      onChange={v => setQty(q=>({...q,[p.id]:v}))}
+                      lastQty={lastItem?.qty}
+                      isMeat={isMeat}
+                    />
+                  </View>
+                </View>
               );
             })}
           </View>
@@ -662,6 +726,11 @@ const s = StyleSheet.create({
   searchInput:      { flex:1, paddingVertical:10, fontSize:13, color:'#222' },
   content:          { padding:14 },
   section:          { backgroundColor:'#fff', borderRadius:14, padding:14, marginBottom:12 },
+  rowWithMove:      { flexDirection:'row', alignItems:'center' },
+  moveCol:          { width:22, alignItems:'center', justifyContent:'center', gap:2, paddingRight:4 },
+  moveBtn:          { padding:3 },
+  moveBtnDisabled:  { opacity:0.3 },
+  moveArrow:        { fontSize:11, color:'#999', fontWeight:'900' },
   empty:            { alignItems:'center', padding:40 },
   emptyTxt:         { color:'#aaa', fontSize:13 },
   summaryCard:      { backgroundColor:COLORS.primary, borderRadius:14, padding:14, marginBottom:12 },
