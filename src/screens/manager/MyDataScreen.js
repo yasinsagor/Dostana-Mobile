@@ -922,7 +922,7 @@ export default function ManagerMyDataScreen() {
                           <Text style={s.recDate}>{r.date} <Text style={s.recDay}>{dayName(r.date)}</Text></Text>
                           <Text style={[s.recRev, { color: '#D32F2F' }]}>{fmtK(r.total_expenses || 0)} PLN</Text>
                         </View>
-                        <Text style={s.recMeta}>{exps.length} expense{exps.length !== 1 ? 's' : ''}{exps.length > 0 ? ` · ${exps.map(e => e.name || 'Other').join(', ')}` : ''}</Text>
+                        <Text style={s.recMeta}>{exps.length} expense{exps.length !== 1 ? 's' : ''}{exps.length > 0 ? ` · ${exps.map(e => e.name || e.category || 'Other').join(', ')}` : ''}</Text>
                       </View>
                       <View style={s.recActions}>
                         <TouchableOpacity onPress={() => openEditCF(r)} style={s.editBtn}><Text style={{ fontSize: 14 }}>✏️</Text></TouchableOpacity>
@@ -934,7 +934,7 @@ export default function ManagerMyDataScreen() {
                     <View style={s.expandBody}>
                       {exps.map((e, i) => (
                         <View key={i} style={s.detailRow}>
-                          <Text style={s.detailLbl}>{e.name || e.kategoria}</Text>
+                          <Text style={s.detailLbl}>{e.name || e.category || 'Expense'}</Text>
                           <Text style={[s.detailVal, { color: '#D32F2F' }]}>{fmtK(e.amount || e.kwota)} PLN</Text>
                         </View>
                       ))}
