@@ -7,7 +7,6 @@ import ManagerHomeScreen     from '../screens/manager/HomeScreen';
 import ManagerSubmitScreen   from '../screens/manager/SubmitScreen';
 import ManagerSpecScreen     from '../screens/manager/SpecScreen';
 import ManagerMyDataScreen   from '../screens/manager/MyDataScreen';
-import ManagerHistoryScreen  from '../screens/manager/HistoryScreen';
 import ManagerSettingsScreen from '../screens/manager/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
@@ -17,7 +16,6 @@ const tabs = [
   { name: 'Submit',     component: ManagerSubmitScreen,   icon: '📤' },
   { name: 'SPEC Order', component: ManagerSpecScreen,     icon: '📦' },
   { name: 'My Data',    component: ManagerMyDataScreen,   icon: '📊' },
-  { name: 'History',    component: ManagerHistoryScreen,  icon: '🗂️' },
   { name: 'Settings',   component: ManagerSettingsScreen, icon: '⚙️' },
 ];
 
@@ -29,10 +27,10 @@ export default function ManagerNavigator() {
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textSecondary,
         tabBarStyle: { paddingBottom: 4, height: 60 },
-        tabBarLabelStyle: { fontSize: 9 },
+        tabBarLabelStyle: { fontSize: 10 },
         tabBarIcon: ({ focused }) => {
           const tab = tabs.find(t => t.name === route.name);
-          return <Text style={{ fontSize: focused ? 19 : 15 }}>{tab?.icon}</Text>;
+          return <Text style={{ fontSize: focused ? 21 : 17 }}>{tab?.icon}</Text>;
         },
       })}
     >
