@@ -1,15 +1,28 @@
 {
   "expo": {
-    "name": "Dostana Mobile",
+    "name": "Dostana Kebab",
     "slug": "dostana-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "ios": { "supportsTablet": true },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A1A1A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "icon": "./assets/icon.png"
+    },
     "android": {
       "edgeToEdgeEnabled": true,
-      "package": "com.dostana.mobile"
+      "package": "com.dostana.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A1A1A"
+      }
     }
   }
 }
