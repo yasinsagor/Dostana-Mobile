@@ -226,12 +226,13 @@ export default function ManagerMyDataScreen() {
       type: 'dr', record,
       fields: {
         total_revenue: String(record.total_revenue || record.revenue || 0),
-        total_hours: String(record.total_hours || record.hours || 0),
+        working_hours: String(record.working_hours || 0),
         wolt: String(record.wolt || 0),
         glovo: String(record.glovo || 0),
         uber_eats: String(record.uber_eats || 0),
         bolt: String(record.bolt || 0),
         pyszne: String(record.pyszne || 0),
+        repos: String(record.repos || 0),
       },
     });
   }
@@ -252,7 +253,6 @@ export default function ManagerMyDataScreen() {
         const updates = {};
         Object.entries(fields).forEach(([k, v]) => { updates[k] = parseFloat(v) || 0; });
         updates.revenue = updates.total_revenue;
-        updates.hours = updates.total_hours;
         await supabase.from('daily_reports').update(updates).eq('id', record.id);
       } else {
         const updatedExps = (expenses || []).map(e => ({ ...e, amount: parseFloat(fields[`exp_${e.name}`]) || 0 }));
@@ -328,7 +328,7 @@ export default function ManagerMyDataScreen() {
         const cash = r.cash||r.gotowka||0;
         const card = r.card||r.karta||0;
         const deliv = DELIVERY_KEYS.reduce((d,k)=>d+(r[k]||0),0);
-        const hrs = r.total_hours||r.hours||0;
+        const hrs = r.working_hours||0;
         lines.push(`${col(fmtDate(r.date),9)}${rgt(fmtK(rv),9)}${rgt(fmtK(cash),7)}${rgt(fmtK(card),7)}${rgt(fmtK(deliv),7)}${rgt(hrs+'h',5)}`);
       });
       lines.push(line('─', 44));
@@ -400,7 +400,7 @@ export default function ManagerMyDataScreen() {
 
     /* ── HOURS ── */
     if (rSecs.hours && filtDr.length > 0) {
-      const totalHrs = filtDr.reduce((s,r)=>s+(r.total_hours||r.hours||0),0);
+      const totalHrs = filtDr.reduce((s,r)=>s+(r.working_hours||0),0);
       const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
       const revPerHr = totalHrs>0?Math.round(totalRev/totalHrs):0;
       lines.push('');
@@ -413,7 +413,7 @@ export default function ManagerMyDataScreen() {
       lines.push(`${col('DATE',9)}${rgt('HOURS',7)}${rgt('REVENUE',10)}${rgt('REV/HR',8)}`);
       lines.push(line('─', 36));
       [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
-        const h = r.total_hours||r.hours||0;
+        const h = r.working_hours||0;
         const rv = r.total_revenue||r.revenue||0;
         const rph = h>0?Math.round(rv/h):0;
         lines.push(`${col(fmtDate(r.date),9)}${rgt(h+'h',7)}${rgt(fmtK(rv),10)}${rgt(fmtK(rph),8)}`);
@@ -503,7 +503,7 @@ export default function ManagerMyDataScreen() {
       rows.push(line(['HOURS REPORT','']));
       rows.push(line(['Date','Daily Hours']));
       filtDr.forEach(r => {
-        const h = r.total_hours||r.hours||0;
+        const h = r.working_hours||0;
         tHrs += h;
         rows.push(line([fmtDate(r.date), h]));
       });
@@ -521,7 +521,7 @@ export default function ManagerMyDataScreen() {
     const drMap  = Object.fromEntries(filtDr.map(r => [r.date, r]));
     const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
     const totalExp = filtCf.reduce((s,r)=>s+(r.total_expenses||r.total||0),0);
-    const totalHrs = filtDr.reduce((s,r)=>s+(r.total_hours||r.hours||0),0);
+    const totalHrs = filtDr.reduce((s,r)=>s+(r.working_hours||0),0);
     const balance  = totalRev - totalExp;
 
     const css = `
@@ -608,7 +608,7 @@ export default function ManagerMyDataScreen() {
     if (rSecs.hours && filtDr.length > 0) {
       let tH = 0;
       const dataRows = filtDr.map(r => {
-        const h = r.total_hours||r.hours||0; tH+=h;
+        const h = r.working_hours||0; tH+=h;
         return `<tr><td>${fmtDate(r.date)}</td><td>${h}h</td></tr>`;
       }).join('');
       html += `<h2>⏱ Hours Report</h2>
@@ -660,7 +660,7 @@ export default function ManagerMyDataScreen() {
   const rev = dr.reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
   const revLast = drLast.reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
   const totalCF = cf.reduce((s, r) => s + (r.total_expenses || 0), 0);
-  const totalHours = dr.reduce((s, r) => s + (r.total_hours || r.hours || 0), 0);
+  const totalHours = dr.reduce((s, r) => s + (r.working_hours || 0), 0);
   const revPct = pct(rev, revLast);
   const revPerHr = totalHours > 0 ? Math.round(rev / totalHours) : 0;
   const avgDay = dr.length > 0 ? Math.round(rev / dr.length) : 0;
@@ -696,7 +696,7 @@ export default function ManagerMyDataScreen() {
     const d = new Date(); d.setDate(d.getDate() - 6 + i);
     const iso = d.toISOString().slice(0, 10);
     const r = dr.find(x => x.date === iso);
-    return { iso, hrs: r?.total_hours || r?.hours || 0, day: dayName(iso) };
+    return { iso, hrs: r?.working_hours || 0, day: dayName(iso) };
   });
   const maxHrs = Math.max(...last7Hours.map(d => d.hrs), 1);
 
@@ -859,7 +859,7 @@ export default function ManagerMyDataScreen() {
             ? <View style={s.empty}><Text style={s.emptyTxt}>No daily reports found</Text></View>
             : [...drAll].sort((a, b) => b.date.localeCompare(a.date)).map(r => {
               const rv = r.total_revenue || r.revenue || 0;
-              const hrs = r.total_hours || r.hours || 0;
+              const hrs = r.working_hours || 0;
               const delivTotal = DELIVERY_KEYS.reduce((d, k) => d + (r[k] || 0), 0);
               const dPct = rv > 0 ? Math.round(delivTotal / rv * 100) : 0;
               const key = `dr_${r.id || r.date}`;
@@ -1124,7 +1124,7 @@ export default function ManagerMyDataScreen() {
             {dr.length === 0
               ? <Text style={s.emptyTxt}>No reports yet this month</Text>
               : [...dr].sort((a, b) => b.date.localeCompare(a.date)).map(r => {
-                const h = r.total_hours || r.hours || 0;
+                const h = r.working_hours || 0;
                 const v = r.total_revenue || r.revenue || 0;
                 return (
                   <View key={r.date} style={s.staffRow}>

@@ -15,8 +15,8 @@ import {
 import { COLORS } from '../../constants';
 
 /* ─── constants ─────────────────────────────────────────────── */
-const PLATFORMS = ['wolt','glovo','uber_eats','bolt','pyszne','restaumatic'];
-const PLATFORM_LABELS = { wolt:'Wolt', glovo:'Glovo', uber_eats:'Uber Eats', bolt:'Bolt Food', pyszne:'Pyszne.pl', restaumatic:'Restaumatic' };
+const PLATFORMS = ['wolt','glovo','uber_eats','bolt','pyszne','repos'];
+const PLATFORM_LABELS = { wolt:'Wolt', glovo:'Glovo', uber_eats:'Uber Eats', bolt:'Bolt Food', pyszne:'Pyszne.pl', repos:'Restaumatic' };
 const CF_CATS = ['Warzywa','Cola/Pepsi','Gaz','C2C','Spec','Wynajem','Pracownicy','Inne'];
 
 function todayStr() { return new Date().toISOString().slice(0,10); }
@@ -91,7 +91,7 @@ export default function ManagerSubmitScreen() {
   const [card,      setCard]      = useState('');
   const [cash,      setCash]      = useState('');
   const [workers,   setWorkers]   = useState([{ name: '', hours: '' }]);
-  const [platforms, setPlatforms] = useState({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', restaumatic:'' });
+  const [platforms, setPlatforms] = useState({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', repos:'' });
   const [cfCats,    setCfCats]    = useState(blankCfCats());
   const [noteType,  setNoteType]  = useState('general');
   const [notes,     setNotes]     = useState('');
@@ -110,7 +110,7 @@ export default function ManagerSubmitScreen() {
   function resetForm() {
     setRevenue(''); setCard(''); setCash('');
     setWorkers([{ name: '', hours: '' }]);
-    setPlatforms({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', restaumatic:'' });
+    setPlatforms({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', repos:'' });
     setCfCats(blankCfCats());
     setNotes(''); setNoteType('general');
     setDrId(null); setCfId(null);
@@ -170,9 +170,9 @@ export default function ManagerSubmitScreen() {
 
         // Merge existing report hours into worker list
         try {
-          const wh = typeof drRecord.workers_hours === 'string'
-            ? JSON.parse(drRecord.workers_hours)
-            : drRecord.workers_hours;
+          const wh = Array.isArray(drRecord.worker_hours)
+            ? drRecord.worker_hours
+            : (typeof drRecord.worker_hours === 'string' ? JSON.parse(drRecord.worker_hours) : []);
           if (Array.isArray(wh) && wh.length > 0) {
             // Update hours for known workers
             let merged = workerList.map(w => {
@@ -333,8 +333,8 @@ export default function ManagerSubmitScreen() {
     try {
       const reportData = {
         branch, date: selectedDate,
-        revenue: rev, card: cardN, cash: cashN, total_hours: hoursN,
-        workers_hours: JSON.stringify(workers.filter(w => n(w.hours) > 0)),
+        revenue: rev, card: cardN, cash: cashN, working_hours: hoursN,
+        worker_hours: workers.filter(w => n(w.hours) > 0),
         total_delivery: totalDelivery,
         total_revenue: rev,
         total_expenses: totalCF,
@@ -413,7 +413,7 @@ export default function ManagerSubmitScreen() {
             setRevenue(''); setCard(''); setCash('');
             setWorkers(w=>w.map(x=>({...x,hours:''})));
             setNotes('');
-            setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',restaumatic:''});
+            setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',repos:''});
             setCfCats(blankCfCats());
           }}>
             <Text style={s.newBtnTxt}>Submit New Report</Text>

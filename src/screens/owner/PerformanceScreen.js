@@ -198,10 +198,10 @@ export default function OwnerPerformanceScreen() {
     const cfExpenses = bCF.reduce((s,r) => s+(r.total_expenses||r.total||0), 0);
     const netProfit = bR.reduce((s,r) => s+(r.net_profit||0), 0);
 
-    // Aggregate per-worker hours from workers_hours JSON; fall back to legacy hours field
+    // Aggregate per-worker hours from worker_hours JSON; fall back to legacy hours field
     const workerHoursMap = {};
     bR.forEach(r => {
-      const wh = parseWorkersHours(r.workers_hours);
+      const wh = Array.isArray(r.worker_hours) ? r.worker_hours : (typeof r.worker_hours === "string" ? JSON.parse(r.worker_hours || "[]") : []);
       if (wh.length > 0) {
         wh.forEach(w => { workerHoursMap[w.name] = (workerHoursMap[w.name] || 0) + w.hours; });
       }

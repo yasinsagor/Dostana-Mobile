@@ -118,7 +118,7 @@ export default function ManagerHomeScreen() {
   const todaySPEC = spec.find(r  => r.date === today);
 
   const todayRev     = todayDR?.total_revenue || todayDR?.revenue || 0;
-  const todayHours   = todayDR?.total_hours   || todayDR?.hours   || 0;
+  const todayHours   = todayDR?.working_hours || 0;
   const yesterdayRev = (daily.find(r => r.date === yesterday)?.total_revenue) || 0;
   const diffPct      = pct(todayRev, yesterdayRev);
 

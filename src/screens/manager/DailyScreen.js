@@ -8,8 +8,8 @@ import { useAuth } from '../../hooks/useAuth';
 import { insertDailyReport } from '../../lib/supabase';
 import { COLORS } from '../../constants';
 
-const PLATFORMS = ['wolt','glovo','uber_eats','bolt','pyszne','restaumatic'];
-const PLATFORM_LABELS = { wolt:'Wolt', glovo:'Glovo', uber_eats:'Uber Eats', bolt:'Bolt Food', pyszne:'Pyszne.pl', restaumatic:'Restaumatic' };
+const PLATFORMS = ['wolt','glovo','uber_eats','bolt','pyszne',"repos"];
+const PLATFORM_LABELS = { wolt:'Wolt', glovo:'Glovo', uber_eats:'Uber Eats', bolt:'Bolt Food', pyszne:'Pyszne.pl', repos:'Restaumatic' };
 
 function Field({ label, value, onChange, keyboardType='numeric', placeholder='0' }) {
   return (
@@ -38,7 +38,7 @@ export default function ManagerDailyScreen() {
   const [cash, setCash] = useState('');
   const [hours, setHours] = useState('');
   const [notes, setNotes] = useState('');
-  const [platforms, setPlatforms] = useState({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', restaumatic:'' });
+  const [platforms, setPlatforms] = useState({ wolt:'', glovo:'', uber_eats:'', bolt:'', pyszne:'', repos:'' });
   const [expenses, setExpenses] = useState([{ name:'', amount:'' }]);
 
   const totalDelivery = PLATFORMS.reduce((s,p) => s + (parseFloat(platforms[p])||0), 0);
@@ -90,7 +90,7 @@ export default function ManagerDailyScreen() {
         <Text style={s.successTitle}>Report Submitted!</Text>
         <Text style={s.successSub}>{user.branch} · {today}</Text>
         <Text style={s.successRev}>{Math.round(totalRevenue).toLocaleString()} PLN</Text>
-        <TouchableOpacity style={s.newBtn} onPress={() => { setSubmitted(false); setRevenue(''); setCard(''); setCash(''); setHours(''); setNotes(''); setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',restaumatic:''}); setExpenses([{name:'',amount:''}]); }}>
+        <TouchableOpacity style={s.newBtn} onPress={() => { setSubmitted(false); setRevenue(''); setCard(''); setCash(''); setHours(''); setNotes(''); setPlatforms({wolt:'',glovo:'',uber_eats:'',bolt:'',pyszne:'',repos:''}); setExpenses([{name:'',amount:''}]); }}>
           <Text style={s.newBtnTxt}>Submit Another</Text>
         </TouchableOpacity>
       </View>

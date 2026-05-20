@@ -81,7 +81,7 @@ function SummaryStrip({ data }) {
   const cash   = data.reduce((s, r) => s + (r.cash_revenue  || r.cash  || r.gotowka || 0), 0);
   const card   = data.reduce((s, r) => s + (r.card_revenue  || r.card  || r.karta   || 0), 0);
   const deliv  = data.reduce((s, r) => s + DELIV_KEYS.reduce((ds, k) => ds + (r[k] || 0), 0), 0);
-  const hours  = data.reduce((s, r) => s + (r.total_hours   || r.hours || 0), 0);
+  const hours  = data.reduce((s, r) => s + (r.working_hours || 0), 0);
   const days   = new Set(data.map(r => r.date)).size;
   const avgDay = days > 0 ? Math.round(rev / days) : 0;
 
@@ -169,7 +169,7 @@ function DailyCard({ record, showBranch }) {
   const rev    = record.total_revenue || record.revenue || 0;
   const cash   = record.cash_revenue  || record.cash  || record.gotowka || 0;
   const card   = record.card_revenue  || record.card  || record.karta   || 0;
-  const hours  = record.total_hours   || record.hours || 0;
+  const hours  = record.working_hours || 0;
   const profit = record.net_profit    || 0;
   const deliv  = DELIV_KEYS.reduce((s, k) => s + (record[k] || 0), 0);
   const revPerHr = hours > 0 ? Math.round(rev / hours) : 0;
@@ -320,7 +320,7 @@ function BranchGroup({ branch, records, type }) {
   const totalVal = records.reduce((s, r) => s + (type === 'daily'
     ? (r.total_revenue || r.revenue || 0)
     : (r.total_expenses || r.total || 0)), 0);
-  const totalHours = type === 'daily' ? records.reduce((s, r) => s + (r.total_hours || r.hours || 0), 0) : 0;
+  const totalHours = type === 'daily' ? records.reduce((s, r) => s + (r.working_hours || 0), 0) : 0;
   const days = new Set(records.map(r => r.date)).size;
 
   return (
@@ -403,7 +403,7 @@ function buildHoursCSV(drRecords) {
   const rows = [L(['Date','Branch','Daily Hours'])];
   let total = 0;
   sorted.forEach(r => {
-    const h = r.total_hours||r.hours||0; total+=h;
+    const h = r.working_hours || 0; total+=h;
     rows.push(L([fmtDate(r.date), r.branch||'', h]));
   });
   rows.push(L(['TOTAL','', total]));
@@ -450,7 +450,7 @@ function buildDailyHTML(drRecords, cfRecords, title) {
     const onl  = DELIV_KEYS.reduce((s,k)=>s+(r[k]||0),0);
     const cf   = cfMap[r.date];
     const wyd  = cf ? (cf.total_expenses||cf.total||0) : 0;
-    const hrs  = r.total_hours||r.hours||0;
+    const hrs  = r.working_hours || 0;
     tSale+=sale; tGot+=got; tKar+=kar; tOnl+=onl; tWyd+=wyd; tHrs+=hrs;
     const br = (drRecords.length > 1 && new Set(drRecords.map(x=>x.branch)).size > 1) ? `<td>${r.branch||''}</td>` : '';
     return `<tr>${br}<td>${fmtDate(r.date)}</td><td>${fmtNum(sale)}</td><td>${fmtNum(got)}</td><td>${fmtNum(kar)}</td><td>${fmtNum(onl)}</td><td>${fmtNum(wyd)}</td></tr>`;
@@ -460,7 +460,7 @@ function buildDailyHTML(drRecords, cfRecords, title) {
   const branchTotal = multiBranch ? '<td></td>' : '';
 
   const hoursRows = sorted.map(r => {
-    const h = r.total_hours||r.hours||0;
+    const h = r.working_hours || 0;
     return `<tr><td>${fmtDate(r.date)}</td><td>${h}h</td></tr>`;
   }).join('');
 
@@ -640,7 +640,7 @@ export default function OwnerReportsScreen() {
           const tGot  = filtDaily.reduce((s,r)=>s+(r.cash_revenue||r.cash||r.gotowka||0),0);
           const tKar  = filtDaily.reduce((s,r)=>s+(r.card_revenue||r.card||r.karta||0),0);
           const tOnl  = filtDaily.reduce((s,r)=>s+DELIV_KEYS.reduce((d,k)=>d+(r[k]||0),0),0);
-          const tHrs  = filtDaily.reduce((s,r)=>s+(r.total_hours||r.hours||0),0);
+          const tHrs  = filtDaily.reduce((s,r)=>s+(r.working_hours || 0),0);
           lines.push(`Total Sale: ${fmtNum(tSale)} PLN`);
           lines.push(`Gotówka: ${fmtNum(tGot)} PLN | Karta: ${fmtNum(tKar)} PLN | Online: ${fmtNum(tOnl)} PLN`);
           lines.push(`Total Hours: ${tHrs}h\n`);
