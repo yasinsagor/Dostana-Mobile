@@ -444,7 +444,7 @@ export default function ManagerMyDataScreen() {
       rows.push(line(['CASH FLOW REPORT','','','']));
       rows.push(line(['Date','Income','Purpose of Expenses','Amount']));
       filtCf.forEach(r => {
-        const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+        const inc  = drMap[r.date] ? (drMap[r.date].cash_revenue||drMap[r.date].cash||drMap[r.date].gotowka||0) : 0;
         const exps = parseExp(r.expenses);
         tInc += inc;
         if (exps.length === 0) {
@@ -550,7 +550,7 @@ export default function ManagerMyDataScreen() {
     if (rSecs.cashflow && filtCf.length > 0) {
       let tInc=0, tExp2=0;
       const dataRows = filtCf.map(r => {
-        const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+        const inc  = drMap[r.date] ? (drMap[r.date].cash_revenue||drMap[r.date].cash||drMap[r.date].gotowka||0) : 0;
         const exps = parseExp(r.expenses);
         tInc += inc;
         if (exps.length === 0) {
@@ -855,7 +855,7 @@ export default function ManagerMyDataScreen() {
           {/* Income / Expenses / Balance strip */}
           {cfAll.length > 0 && (() => {
             const totalExp = cfAll.reduce((sum, r) => sum + (r.total_expenses || r.total || 0), 0);
-            const totalInc = drAll.reduce((sum, r) => sum + (r.total_revenue || r.revenue || 0), 0);
+            const totalInc = drAll.reduce((sum, r) => sum + (r.cash_revenue || r.cash || r.gotowka || 0), 0);
             const bal = totalInc - totalExp;
             return (
               <View style={s.cfHeader}>

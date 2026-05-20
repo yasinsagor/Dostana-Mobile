@@ -114,7 +114,7 @@ const ss = StyleSheet.create({
 
 function CashSummaryStrip({ cfData, drData }) {
   const totalExp = cfData.reduce((s, r) => s + (r.total_expenses || r.total || 0), 0);
-  const totalInc = (drData || []).reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
+  const totalInc = (drData || []).reduce((s, r) => s + (r.cash_revenue || r.cash || r.gotowka || 0), 0);
   const balance  = totalInc - totalExp;
   const days     = new Set(cfData.map(r => r.date)).size;
   const avgDay   = days > 0 ? Math.round(totalExp / days) : 0;
@@ -411,7 +411,7 @@ function buildCashCSV(cfRecords, drRecords) {
   const rows = [L(['Date','Branch','Income','Purpose of Expenses','Amount'])];
   let tInc=0, tExp=0;
   sorted.forEach(r => {
-    const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+    const inc  = drMap[r.date] ? (drMap[r.date].cash_revenue||drMap[r.date].cash||drMap[r.date].gotowka||0) : 0;
     const exps = parseExp(r.expenses);
     tInc += inc;
     if (exps.length === 0) {
@@ -487,7 +487,7 @@ function buildCashHTML(cfRecords, drRecords, title) {
   const branchTh = multiBranch ? '<th>Branch</th>' : '';
 
   const cashRows = sorted.map(r => {
-    const inc  = drMap[r.date] ? (drMap[r.date].total_revenue||drMap[r.date].revenue||0) : 0;
+    const inc  = drMap[r.date] ? (drMap[r.date].cash_revenue||drMap[r.date].cash||drMap[r.date].gotowka||0) : 0;
     const exps = parseExp(r.expenses);
     tInc += inc;
     const branchTd = multiBranch ? `<td>${r.branch||''}</td>` : '';
