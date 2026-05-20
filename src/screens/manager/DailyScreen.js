@@ -62,7 +62,7 @@ export default function ManagerDailyScreen() {
         revenue: parseFloat(revenue)||0,
         card: parseFloat(card)||0,
         cash: parseFloat(cash)||0,
-        hours: parseFloat(hours)||0,
+        working_hours: parseFloat(hours)||0,
         total_delivery: totalDelivery,
         total_revenue: totalRevenue,
         total_expenses: totalExpenses,

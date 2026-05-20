@@ -89,7 +89,7 @@ export default function OwnerDashboardScreen() {
 
   const branchStatus = BRANCHES.map(b => {
     const dr = todayDaily.find(r => r.branch === b.name);
-    return { name: b.name, submitted: !!dr, revenue: dr ? (dr.total_revenue || dr.revenue || 0) : 0, profit: dr ? (dr.net_profit || 0) : 0, hours: dr ? (dr.hours || 0) : 0, specDone: specSet.has(b.name) };
+    return { name: b.name, submitted: !!dr, revenue: dr ? (dr.total_revenue || dr.revenue || 0) : 0, profit: dr ? (dr.net_profit || 0) : 0, hours: dr ? (dr.working_hours || 0) : 0, specDone: specSet.has(b.name) };
   }).sort((a, b) => b.revenue - a.revenue);
 
   const last7 = Array.from({ length: 7 }, (_, i) => daysAgoStr(6 - i));
