@@ -916,7 +916,7 @@ export default function ManagerMyDataScreen() {
                           <Text style={s.recDate}>{r.date} <Text style={s.recDay}>{dayName(r.date)}</Text></Text>
                           <Text style={[s.recRev, { color: '#D32F2F' }]}>{fmtK(r.total_expenses || 0)} PLN</Text>
                         </View>
-                        <Text style={s.recMeta}>{exps.length} categories</Text>
+                        <Text style={s.recMeta}>{exps.length} expense{exps.length !== 1 ? 's' : ''}{exps.length > 0 ? ` · ${exps.map(e => e.name || 'Other').join(', ')}` : ''}</Text>
                       </View>
                       <View style={s.recActions}>
                         <TouchableOpacity onPress={() => openEditCF(r)} style={s.editBtn}><Text style={{ fontSize: 14 }}>✏️</Text></TouchableOpacity>
