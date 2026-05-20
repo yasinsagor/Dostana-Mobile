@@ -29,7 +29,7 @@
         {
           "android": {
             "compileSdkVersion": 35,
-            "targetSdkVersion": 35,
+            "targetSdkVersion": 34,
             "minSdkVersion": 24,
             "ndkVersion": "27.2.12479018",
             "enableProguardInReleaseBuilds": false
@@ -37,7 +37,8 @@
         }
       ],
       "./plugins/with16KBPageSupport",
-      "./plugins/withUseLegacyPackaging"
+      "./plugins/withUseLegacyPackaging",
+      "./plugins/withDisableEdgeToEdge"
     ]
   }
 }
