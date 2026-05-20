@@ -35,7 +35,8 @@
             "enableProguardInReleaseBuilds": false
           }
         }
-      ]
+      ],
+      "./plugins/with16KBPageSupport"
     ]
   }
 }
