@@ -57,6 +57,11 @@
       "./plugins/with16KBPageSupport",
       "./plugins/withUseLegacyPackaging",
       "./plugins/withDisableEdgeToEdge"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "52e07024-eb99-41f3-a1fe-60d126280701"
+      }
+    }
   }
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, Alert, ActivityIndicator, Platform,
+  TouchableOpacity, Alert, ActivityIndicator, Platform, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -333,6 +333,9 @@ export default function ManagerSpecScreen() {
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [monthRev,  setMonthRev]  = useState(0);
   const [monthSpec, setMonthSpec] = useState(0);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [newProduct, setNewProduct] = useState({ name: '', unit: '', cat: 'MiÄ™so', price: '' });
+  const [addingProduct, setAddingProduct] = useState(false);
   const autoSaveTimer = useRef(null);
 
   /* ── init ── */
@@ -543,6 +546,86 @@ export default function ManagerSpecScreen() {
     const orderedCats = new Set(ordered.map(p => p.category || p.cat || 'Other'));
     return cats.filter(c => c !== 'All' && !orderedCats.has(c));
   };
+
+  const openAddProduct = () => {
+    setNewProduct({
+      name: '',
+      unit: '',
+      cat: activeTab !== 'All' ? activeTab : 'MiÄ™so',
+      price: '',
+    });
+    setShowAddProduct(true);
+  };
+
+  async function handleAddProduct() {
+    const name = newProduct.name.trim();
+    const unit = newProduct.unit.trim();
+    const cat = (newProduct.cat || 'Other').trim() || 'Other';
+    const price = n(newProduct.price);
+
+    if (!name) { Alert.alert('Product name required', 'Enter the product name.'); return; }
+    if (!unit) { Alert.alert('Unit required', 'Enter a unit, for example kg, szt, pckt, or karton.'); return; }
+
+    setAddingProduct(true);
+    try {
+      let saved = null;
+      const payload = { name, unit, cat, price };
+      const { data, error } = await supabase
+        .from('spec_products')
+        .upsert([payload], { onConflict: 'name', ignoreDuplicates: false })
+        .select()
+        .single();
+
+      if (error) {
+        const { data: existing } = await supabase
+          .from('spec_products')
+          .select('id')
+          .eq('name', name)
+          .limit(1);
+
+        if (existing && existing.length > 0) {
+          const { data: updated, error: updateError } = await supabase
+            .from('spec_products')
+            .update({ unit, cat, price })
+            .eq('name', name)
+            .select()
+            .single();
+          if (updateError) throw updateError;
+          saved = updated;
+        } else {
+          const { data: inserted, error: insertError } = await supabase
+            .from('spec_products')
+            .insert(payload)
+            .select()
+            .single();
+          if (insertError) throw insertError;
+          saved = inserted;
+        }
+      } else {
+        saved = data;
+      }
+
+      const product = {
+        id: saved?.id || `custom_${Date.now()}`,
+        name,
+        unit,
+        cat,
+        category: cat,
+        price,
+      };
+      setProducts(prev => {
+        const withoutSame = prev.filter(p => p.name.toLowerCase() !== name.toLowerCase());
+        return [...withoutSame, product].sort((a,b) => a.name.localeCompare(b.name));
+      });
+      setActiveTab(cat);
+      setSearch('');
+      setShowAddProduct(false);
+      Alert.alert('Product added', `${name} is now available to all locations.`);
+    } catch(e) {
+      Alert.alert('Add Product Failed', e.message || 'Could not save this product.');
+    }
+    setAddingProduct(false);
+  }
 
   /* ── submit ── */
   async function handleSubmit() {
@@ -892,6 +975,12 @@ export default function ManagerSpecScreen() {
         </View>
         <View style={{gap:4,alignItems:'flex-end'}}>
           <TouchableOpacity
+            style={s.addProductBtn}
+            onPress={openAddProduct}
+            activeOpacity={0.7}>
+            <Text style={s.addProductBtnTxt}>+ Product</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[s.lastBtn,{opacity:lastOrder?1:0.3}]}
             onPress={applyLastOrder} disabled={!lastOrder} activeOpacity={0.7}>
             <Text style={s.lastBtnTxt}>🕐 Last Order</Text>
@@ -1053,6 +1142,89 @@ export default function ManagerSpecScreen() {
           }
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={showAddProduct}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAddProduct(false)}
+      >
+        <View style={s.modalShade}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>Add SPEC Product</Text>
+            <Text style={s.modalSub}>Saved products are shared with all locations.</Text>
+
+            <Text style={s.inputLabel}>Product name</Text>
+            <TextInput
+              style={s.modalInput}
+              value={newProduct.name}
+              onChangeText={v => setNewProduct(p => ({ ...p, name: v }))}
+              placeholder="e.g. Ayran 250ml"
+              placeholderTextColor="#bbb"
+            />
+
+            <View style={s.modalTwoCols}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.inputLabel}>Unit</Text>
+                <TextInput
+                  style={s.modalInput}
+                  value={newProduct.unit}
+                  onChangeText={v => setNewProduct(p => ({ ...p, unit: v }))}
+                  placeholder="kg / szt / pckt"
+                  placeholderTextColor="#bbb"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.inputLabel}>Price</Text>
+                <TextInput
+                  style={s.modalInput}
+                  value={newProduct.price}
+                  onChangeText={v => setNewProduct(p => ({ ...p, price: v }))}
+                  placeholder="0"
+                  placeholderTextColor="#bbb"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+
+            <Text style={s.inputLabel}>Category</Text>
+            <View style={s.catPicker}>
+              {['MiÄ™so', 'Sosy', 'Oleje', 'Opakowania', 'Other'].map(cat => (
+                <TouchableOpacity
+                  key={cat}
+                  style={[s.catPickBtn, newProduct.cat === cat && s.catPickBtnActive]}
+                  onPress={() => setNewProduct(p => ({ ...p, cat }))}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[s.catPickTxt, newProduct.cat === cat && s.catPickTxtActive]}>{cat}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={s.modalActions}>
+              <TouchableOpacity
+                style={s.cancelBtn}
+                onPress={() => setShowAddProduct(false)}
+                disabled={addingProduct}
+                activeOpacity={0.75}
+              >
+                <Text style={s.cancelBtnTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.saveProductBtn, addingProduct && { opacity: 0.6 }]}
+                onPress={handleAddProduct}
+                disabled={addingProduct}
+                activeOpacity={0.85}
+              >
+                {addingProduct
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={s.saveProductBtnTxt}>Save Product</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1066,6 +1238,8 @@ const s = StyleSheet.create({
   headerSub:        { fontSize:11, color:'#aaa' },
   specPill:         { borderRadius:8, paddingHorizontal:8, paddingVertical:3 },
   specPillTxt:      { fontSize:10, fontWeight:'800' },
+  addProductBtn:    { backgroundColor:COLORS.primary, borderRadius:8, paddingHorizontal:10, paddingVertical:6 },
+  addProductBtnTxt: { fontSize:12, fontWeight:'900', color:'#fff' },
   lastBtn:          { backgroundColor:'#F5F5F5', borderRadius:8, paddingHorizontal:10, paddingVertical:6 },
   lastBtnTxt:       { fontSize:12, fontWeight:'700', color:'#555' },
   tabsWrap:         { backgroundColor:'#fff', borderBottomWidth:1, borderBottomColor:'#EEE' },
@@ -1130,5 +1304,22 @@ const s = StyleSheet.create({
   supplierNoteTxt:  { fontSize:12, color:'#555', lineHeight:18 },
   newBtn:           { backgroundColor:'#333', borderRadius:12, padding:14, alignItems:'center' },
   newBtnTxt:        { color:'#fff', fontWeight:'800', fontSize:14 },
+  modalShade:       { flex:1, backgroundColor:'rgba(0,0,0,0.45)', justifyContent:'center', padding:18 },
+  modalCard:        { backgroundColor:'#fff', borderRadius:14, padding:16 },
+  modalTitle:       { fontSize:18, fontWeight:'900', color:'#222' },
+  modalSub:         { fontSize:12, color:'#777', marginTop:3, marginBottom:14 },
+  inputLabel:       { fontSize:11, fontWeight:'800', color:'#555', marginBottom:6, marginTop:8 },
+  modalInput:       { borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:10, paddingHorizontal:12, paddingVertical:10, fontSize:14, fontWeight:'700', color:'#222', backgroundColor:'#FAFAFA' },
+  modalTwoCols:     { flexDirection:'row', gap:10 },
+  catPicker:        { flexDirection:'row', flexWrap:'wrap', gap:6 },
+  catPickBtn:       { borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:16, paddingHorizontal:10, paddingVertical:7, backgroundColor:'#fff' },
+  catPickBtnActive: { backgroundColor:COLORS.primary, borderColor:COLORS.primary },
+  catPickTxt:       { fontSize:11, fontWeight:'800', color:'#777' },
+  catPickTxtActive: { color:'#fff' },
+  modalActions:     { flexDirection:'row', gap:10, marginTop:16 },
+  cancelBtn:        { flex:1, borderRadius:12, backgroundColor:'#F0F0F0', paddingVertical:13, alignItems:'center' },
+  cancelBtnTxt:     { fontSize:13, fontWeight:'900', color:'#555' },
+  saveProductBtn:   { flex:1, borderRadius:12, backgroundColor:COLORS.primary, paddingVertical:13, alignItems:'center' },
+  saveProductBtnTxt:{ fontSize:13, fontWeight:'900', color:'#fff' },
 });
 
