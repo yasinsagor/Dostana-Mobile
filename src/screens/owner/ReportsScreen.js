@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   RefreshControl, ActivityIndicator, TextInput, Alert, Share,
@@ -549,7 +550,7 @@ export default function OwnerReportsScreen() {
     finally { setLoading(false); setRefreshing(false); }
   }, [getRange]);
 
-  useEffect(() => { setLoading(true); load(); }, [load]);
+  useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
 
   /* ── filter ── */
   const applyFilters = (records) => {

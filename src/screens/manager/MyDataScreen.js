@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Modal, TextInput,
@@ -170,7 +171,7 @@ export default function ManagerMyDataScreen() {
     setLoading(false); setRefreshing(false);
   }, [branch, from, to, lfrom, lto, histFrom, today]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(load);
 
   function toggle(key) { setExpanded(e => ({ ...e, [key]: !e[key] })); }
 

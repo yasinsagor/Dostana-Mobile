@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, Alert, ActivityIndicator, RefreshControl, Share,
@@ -107,8 +108,11 @@ export default function ManagerScheduleScreen() {
     setRefreshing(false);
   }, [branch, ws]);
 
-  useEffect(() => { loadStaff(); }, [loadStaff]);
-  useEffect(() => { setLoading(true); loadShifts(); }, [loadShifts]);
+  useFocusEffect(useCallback(() => {
+    loadStaff();
+    setLoading(true);
+    loadShifts();
+  }, [loadStaff, loadShifts]));
 
   function prevWeek() { setWeekStart(d => addDays(d, -7)); }
   function nextWeek() { setWeekStart(d => addDays(d,  7)); }

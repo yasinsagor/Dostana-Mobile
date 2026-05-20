@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, Alert, ActivityIndicator,
@@ -124,7 +125,7 @@ export default function SupplierPricesScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadProducts(); }, [loadProducts]);
+  useFocusEffect(loadProducts);
 
   /* ── save all prices ── */
   async function saveAllPrices() {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, Alert, ActivityIndicator, RefreshControl,
@@ -167,10 +168,10 @@ export default function SupplierOrdersScreen() {
     setRefreshing(false);
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     setLoading(true);
     loadOrders(selectedDate);
-  }, [selectedDate, loadOrders]);
+  }, [selectedDate, loadOrders]));
 
   function applyDate() {
     const d = dateInput.trim();

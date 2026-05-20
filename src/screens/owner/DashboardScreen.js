@@ -4,7 +4,7 @@ import {
   RefreshControl, ActivityIndicator, Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase, fetchAllDailyReports } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS, BRANCHES } from '../../constants';
@@ -54,7 +54,7 @@ export default function OwnerDashboardScreen() {
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(load);
 
   const t = todayStr();
   const submittedSet = new Set(todayDaily.map(r => r.branch));
