@@ -9,16 +9,18 @@ import OwnerSpecScreen         from '../screens/owner/SpecScreen';
 import OwnerCashflowScreen     from '../screens/owner/CashflowScreen';
 import OwnerOperationsScreen   from '../screens/owner/OperationsScreen';
 import OwnerSettingsScreen     from '../screens/owner/SettingsScreen';
+import OwnerReportsScreen      from '../screens/owner/ReportsScreen';
 
 const Tab = createBottomTabNavigator();
 
 const tabs = [
-  { name: 'Dashboard',    component: OwnerDashboardScreen,   icon: '🏠' },
-  { name: 'Performance',  component: OwnerPerformanceScreen, icon: '📊' },
-  { name: 'SPEC',         component: OwnerSpecScreen,        icon: '📦' },
-  { name: 'Cash Flow',    component: OwnerCashflowScreen,    icon: '💰' },
-  { name: 'Operations',   component: OwnerOperationsScreen,  icon: '🛠' },
-  { name: 'Settings',     component: OwnerSettingsScreen,    icon: '⚙️' },
+  { name: 'Dashboard',  component: OwnerDashboardScreen,   icon: '🏠' },
+  { name: 'Reports',    component: OwnerReportsScreen,     icon: '📋' },
+  { name: 'Performance',component: OwnerPerformanceScreen, icon: '📊' },
+  { name: 'SPEC',       component: OwnerSpecScreen,        icon: '📦' },
+  { name: 'Cash Flow',  component: OwnerCashflowScreen,    icon: '💰' },
+  { name: 'Operations', component: OwnerOperationsScreen,  icon: '🛠' },
+  { name: 'Settings',   component: OwnerSettingsScreen,    icon: '⚙️' },
 ];
 
 export default function OwnerNavigator() {
