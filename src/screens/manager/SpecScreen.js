@@ -589,13 +589,15 @@ export default function ManagerSpecScreen() {
               const isMeat = cat.toLowerCase().includes('mięso') || cat.toLowerCase().includes('meat') ||
                              (p.unit||'').toLowerCase() === 'kg';
               const lastItem = lastOrder?.items?.find(it=>it.name===p.name);
-              const moveButtons = (
+              const showMove = !search;
+              const moveButtons = showMove ? (
                 <View style={s.moveCol}>
                   <TouchableOpacity
                     style={[s.moveBtn, idx === 0 && s.moveBtnDisabled]}
                     onPress={() => moveProduct(p.id, 'up')}
                     disabled={idx === 0}
-                    activeOpacity={0.6}
+                    activeOpacity={0.5}
+                    hitSlop={{top:6,bottom:6,left:6,right:6}}
                   >
                     <Text style={[s.moveArrow, idx === 0 && {color:'#DDD'}]}>▲</Text>
                   </TouchableOpacity>
@@ -603,19 +605,19 @@ export default function ManagerSpecScreen() {
                     style={[s.moveBtn, idx === filtered.length - 1 && s.moveBtnDisabled]}
                     onPress={() => moveProduct(p.id, 'down')}
                     disabled={idx === filtered.length - 1}
-                    activeOpacity={0.6}
+                    activeOpacity={0.5}
+                    hitSlop={{top:6,bottom:6,left:6,right:6}}
                   >
                     <Text style={[s.moveArrow, idx === filtered.length - 1 && {color:'#DDD'}]}>▼</Text>
                   </TouchableOpacity>
                 </View>
-              );
+              ) : null;
               if (isMeatSpecialProd(p)) {
                 const lastTotalKg = lastItem
                   ? parseFloat(lastItem.totalKg||0) || (parseFloat(lastItem.qty||0)*(parseInt((lastItem.unit||'10kg').replace('kg',''))||10))
                   : 0;
                 return (
                   <View key={p.id} style={s.rowWithMove}>
-                    {moveButtons}
                     <View style={{flex:1}}>
                       <MeatProductRow
                         product={p}
@@ -624,12 +626,12 @@ export default function ManagerSpecScreen() {
                         lastTotalKg={lastTotalKg}
                       />
                     </View>
+                    {moveButtons}
                   </View>
                 );
               }
               return (
                 <View key={p.id} style={s.rowWithMove}>
-                  {moveButtons}
                   <View style={{flex:1}}>
                     <ProductRow
                       product={p}
@@ -639,6 +641,7 @@ export default function ManagerSpecScreen() {
                       isMeat={isMeat}
                     />
                   </View>
+                  {moveButtons}
                 </View>
               );
             })}
@@ -727,10 +730,10 @@ const s = StyleSheet.create({
   content:          { padding:14 },
   section:          { backgroundColor:'#fff', borderRadius:14, padding:14, marginBottom:12 },
   rowWithMove:      { flexDirection:'row', alignItems:'center' },
-  moveCol:          { width:22, alignItems:'center', justifyContent:'center', gap:2, paddingRight:4 },
-  moveBtn:          { padding:3 },
-  moveBtnDisabled:  { opacity:0.3 },
-  moveArrow:        { fontSize:11, color:'#999', fontWeight:'900' },
+  moveCol:          { width:24, alignItems:'center', justifyContent:'center', gap:4, paddingLeft:6, borderLeftWidth:1, borderLeftColor:'#F0F0F0', marginLeft:6, alignSelf:'stretch', paddingVertical:4 },
+  moveBtn:          { padding:2 },
+  moveBtnDisabled:  { opacity:0.25 },
+  moveArrow:        { fontSize:12, color:'#BDBDBD', fontWeight:'900' },
   empty:            { alignItems:'center', padding:40 },
   emptyTxt:         { color:'#aaa', fontSize:13 },
   summaryCard:      { backgroundColor:COLORS.primary, borderRadius:14, padding:14, marginBottom:12 },
