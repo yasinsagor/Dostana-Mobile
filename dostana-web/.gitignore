@@ -1,0 +1,15 @@
+# deps
+node_modules/
+.npm
+
+# Next.js
+.next/
+out/
+
+# env
+.env*
+!.env.example
+
+# misc
+.DS_Store
+*.pem
