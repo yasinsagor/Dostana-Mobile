@@ -8,7 +8,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { COLORS } from '../../constants';
@@ -269,14 +268,12 @@ export default function ManagerScheduleScreen() {
     </body></html>`;
 
     try {
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const dest = FileSystem.cacheDirectory + `schedule_${branch}_${ws}.pdf`.replace(/\s/g,'_');
-      await FileSystem.moveAsync({ from: uri, to: dest });
+      const { uri } = await Print.printToFileAsync({ html });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(dest, { mimeType:'application/pdf', dialogTitle:'Export Schedule PDF', UTI:'com.adobe.pdf' });
+        await Sharing.shareAsync(uri, { mimeType:'application/pdf', dialogTitle:'Export Schedule PDF', UTI:'com.adobe.pdf' });
       } else {
-        await Print.printAsync({ uri: dest });
+        await Print.printAsync({ uri });
       }
     } catch (e) { Alert.alert('PDF Export Failed', e.message); }
   }

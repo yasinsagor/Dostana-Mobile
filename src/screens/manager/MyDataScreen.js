@@ -8,7 +8,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase, fetchDailyReports, fetchCashflowReports, fetchSpecOrders, fetchAllDailyReports } from '../../lib/supabase';
 import { COLORS } from '../../constants';
@@ -643,15 +643,12 @@ export default function ManagerMyDataScreen() {
   async function exportPDF() {
     try {
       const html = buildPDFHtml();
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const { f, t } = resolveRange();
-      const destPath = FileSystem.cacheDirectory + `dostana_${branch}_${f}_${t}.pdf`.replace(/\s/g,'_');
-      await FileSystem.moveAsync({ from: uri, to: destPath });
+      const { uri } = await Print.printToFileAsync({ html });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(destPath, { mimeType: 'application/pdf', dialogTitle: 'Export PDF', UTI: 'com.adobe.pdf' });
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Export PDF', UTI: 'com.adobe.pdf' });
       } else {
-        await Print.printAsync({ uri: destPath });
+        await Print.printAsync({ uri });
       }
     } catch (e) { Alert.alert('PDF Export Failed', e.message); }
   }
