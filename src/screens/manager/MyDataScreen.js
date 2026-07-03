@@ -173,7 +173,7 @@ class MyDataErrorBoundary extends React.Component {
   retry = () => this.setState(state => ({ error: null, retryKey: state.retryKey + 1 }));
   render() {
     if (this.state.error) return <SafeMyDataFallback branch={this.props.branch} error={this.state.error.message} onRetry={this.retry} />;
-    return <ManagerMyDataContent key={this.state.retryKey} />;
+    return <ManagerMyDataContent key={this.state.retryKey} deferHeavy={this.props.deferHeavy} />;
   }
 }
 
@@ -230,7 +230,7 @@ const itb = StyleSheet.create({
 });
 
 /* ════════════════════════════════════════════════════════════ */
-function ManagerMyDataContent() {
+function ManagerMyDataContent({ deferHeavy = false }) {
   const { user } = useAuth();
   const branch = user?.branch || '';
   const [tab, setTab] = useState('Summary');
@@ -273,9 +273,9 @@ function ManagerMyDataContent() {
         fetchDailyReports(branch, histFrom, today),
         fetchCashflowReports(branch, from, to),
         fetchCashflowReports(branch, histFrom, today),
-        fetchSpecOrders(branch),
+        deferHeavy ? Promise.resolve([]) : fetchSpecOrders(branch),
         fetchDailyReports(branch, lfrom, lto),
-        fetchAllDailyReports(from, to),
+        deferHeavy ? Promise.resolve([]) : fetchAllDailyReports(from, to),
       ]);
       setDr(dCur || []);
       setDrAll(dHist || []);
@@ -286,9 +286,24 @@ function ManagerMyDataContent() {
       setAllDr(all || []);
     } catch (e) { console.error(e); }
     setLoading(false); setRefreshing(false);
-  }, [branch, from, to, lfrom, lto, histFrom, today]);
+  }, [branch, from, to, lfrom, lto, histFrom, today, deferHeavy]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Turystyczna has heavier historical records. Load those only when their
+  // tab is opened so the normal dashboard can paint first without Android
+  // terminating the screen.
+  useEffect(() => {
+    if (!deferHeavy) return;
+    let active = true;
+    if ((tab === 'SPEC' || tab === 'Report') && spec.length === 0) {
+      fetchSpecOrders(branch).then(data => { if (active) setSpec((data || []).slice(0, 60)); }).catch(() => {});
+    }
+    if (tab === 'Rank' && allDr.length === 0) {
+      fetchAllDailyReports(from, to).then(data => { if (active) setAllDr(data || []); }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [tab, deferHeavy, branch, from, to, spec.length, allDr.length]);
 
   function toggle(key) { setExpanded(e => ({ ...e, [key]: !e[key] })); }
 
@@ -1358,10 +1373,8 @@ function ManagerMyDataContent() {
 export default function ManagerMyDataScreen() {
   const { user } = useAuth();
   const branch = user?.branch || '';
-  if (branch.trim().toLocaleLowerCase('pl-PL') === 'turystyczna') {
-    return <SafeMyDataFallback branch={branch} compactOnly />;
-  }
-  return <MyDataErrorBoundary branch={branch} />;
+  const deferHeavy = branch.trim().toLocaleLowerCase('pl-PL') === 'turystyczna';
+  return <MyDataErrorBoundary branch={branch} deferHeavy={deferHeavy} />;
 }
 
 /* ─── styles ───────────────────────────────────────────────── */
