@@ -10,7 +10,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase, fetchDailyReports, fetchCashflowReports, fetchSpecOrders, fetchAllDailyReports } from '../../lib/supabase';
+import { supabase, fetchDailyReports, fetchCashflowReports, fetchSpecOrders, fetchAllDailyReports, updateDailyReport, updateCashflowReport, deleteCashflowReport } from '../../lib/supabase';
 import { COLORS } from '../../constants';
 import { FALLBACK_PRODUCTS } from '../../lib/products';
 
@@ -252,14 +252,16 @@ export default function ManagerMyDataScreen() {
       if (type === 'dr') {
         const updates = {};
         Object.entries(fields).forEach(([k, v]) => { updates[k] = parseFloat(v) || 0; });
-        updates.revenue = updates.total_revenue;
-        await supabase.from('daily_reports').update(updates).eq('id', record.id);
+        updates.utarg = updates.total_revenue;
+        updates.restaumatic = updates.repos;
+        delete updates.repos;
+        await updateDailyReport(record.id, updates);
       } else {
         const updatedExps = (expenses || []).map(e => ({ ...e, amount: parseFloat(fields[`exp_${e.name}`]) || 0 }));
-        await supabase.from('cashflow_reports').update({
+        await updateCashflowReport(record.id, {
           total_expenses: parseFloat(fields.total_expenses) || 0,
           expenses: updatedExps,
-        }).eq('id', record.id);
+        });
       }
     } catch (e) { Alert.alert('Error', e.message); }
     setSaving(false);
@@ -268,13 +270,15 @@ export default function ManagerMyDataScreen() {
   }
 
   function confirmDelete(type, id) {
-    const table = type === 'dr' ? 'daily_reports' : 'cashflow_reports';
     const label = type === 'dr' ? 'daily report' : 'cash flow record';
     Alert.alert(`Delete ${label}?`, 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive', onPress: async () => {
-          try { await supabase.from(table).delete().eq('id', id); }
+          try {
+            if (type === 'dr') await supabase.from('daily_reports').delete().eq('id', id);
+            else await deleteCashflowReport(id);
+          }
           catch (e) { Alert.alert('Error', e.message); return; }
           load();
         }

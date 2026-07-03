@@ -10,7 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import {
   supabase, insertDailyReport, fetchDailyReports, fetchSpecOrders,
-  fetchBranchWorkers, saveBranchWorkers, updateDailyReport, updateCashflowReport,
+  fetchBranchWorkers, saveBranchWorkers, updateDailyReport,
 } from '../../lib/supabase';
 import { COLORS } from '../../constants';
 
@@ -286,11 +286,11 @@ export default function ManagerSubmitScreen() {
       try {
         const [{ data:dr }, { data:cf }, { data:sp }] = await Promise.all([
           supabase.from('daily_reports').select('*').eq('branch',branch).eq('date',selectedDate).limit(1),
-          supabase.from('cashflow_reports').select('*').eq('branch',branch).eq('date',selectedDate).limit(1),
+          supabase.from('daily_reports').select('*').eq('branch',branch).eq('date',selectedDate).limit(1),
           supabase.from('spec_orders').select('id').eq('branch',branch).eq('date',selectedDate).limit(1),
         ]);
         drRecord = dr && dr[0] ? dr[0] : null;
-        cfRecord = cf && cf[0] ? cf[0] : null;
+        cfRecord = cf && cf[0] ? { ...cf[0], expenses: cf[0].cashflow_expenses || [] } : null;
         setDrSubmitted(!!drRecord);
         setCfSubmitted(!!cfRecord);
         setSpecDone(!!(sp && sp.length));
@@ -299,7 +299,7 @@ export default function ManagerSubmitScreen() {
       if (drRecord) {
         // Editing existing daily report — populate form from DB
         setDrId(drRecord.id);
-        setRevenue(String(drRecord.total_revenue || drRecord.revenue || ''));
+        setRevenue(String(drRecord.utarg || drRecord.total_revenue || drRecord.revenue || ''));
         setCard(String(drRecord.card || ''));
         setCash(String(drRecord.cash || ''));
 
@@ -326,7 +326,7 @@ export default function ManagerSubmitScreen() {
 
         // Populate platforms
         const pObj = {};
-        PLATFORMS.forEach(p => { pObj[p] = String(drRecord[p] || ''); });
+        PLATFORMS.forEach(p => { pObj[p] = String(p === 'repos' ? (drRecord.restaumatic || 0) : (drRecord[p] || '')); });
         setPlatforms(pObj);
 
         if (drRecord.notes) {
@@ -468,15 +468,15 @@ export default function ManagerSubmitScreen() {
     try {
       const reportData = {
         branch, date: selectedDate,
-        revenue: rev, card: cardN, cash: cashN, working_hours: hoursN,
+        utarg: rev, card: cardN, cash: cashN, working_hours: hoursN,
         worker_hours: workers.filter(w => n(w.hours) > 0),
         total_delivery: totalDelivery,
         total_revenue: rev,
         total_expenses: totalCF,
         net_profit: netProfit,
-        notes: `[${noteType.toUpperCase()}] ${notes}`,
         ...Object.fromEntries(PLATFORMS.map(p=>[p,n(platforms[p])])),
-        wydatki: JSON.stringify(cfFilled),
+        restaumatic: n(platforms.repos),
+        cashflow_expenses: cfFilled,
       };
 
       // 1. Daily report — update if exists, insert if new
@@ -484,25 +484,12 @@ export default function ManagerSubmitScreen() {
         await updateDailyReport(drId, reportData);
       } else {
         const inserted = await insertDailyReport(reportData);
-        if (inserted && inserted[0]) setDrId(inserted[0].id);
+        if (inserted) setDrId(inserted.id);
       }
       setDrSubmitted(true);
 
-      const cfData = {
-        branch, date: selectedDate,
-        expenses: cfFilled,
-        total_expenses: totalCF,
-        balance: rev - totalCF,
-        notes: notes || null,
-      };
-
-      // 2. Cash flow — update if exists, insert if new
-      if (cfId) {
-        await updateCashflowReport(cfId, cfData);
-      } else {
-        const { data: cfInserted } = await supabase.from('cashflow_reports').insert([cfData]).select('id');
-        if (cfInserted && cfInserted[0]) setCfId(cfInserted[0].id);
-      }
+      // Cash flow lives inside the daily report, so every tab reads one record.
+      setCfId(drId || `${branch}_${selectedDate}`);
       setCfSubmitted(true);
 
       // clear draft

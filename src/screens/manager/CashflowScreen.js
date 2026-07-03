@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase } from '../../lib/supabase';
+import { saveCashflowReport } from '../../lib/supabase';
 import { COLORS } from '../../constants';
 
 const DEFAULT_CATS = ['Warzywa','Cola/Pepsi','Gaz','C2C','Spec','Wynajem','Pracownicy','Inne'];
@@ -35,14 +35,7 @@ export default function ManagerCashflowScreen() {
     if (filled.length === 0) { Alert.alert('Empty', 'Enter at least one expense'); return; }
     setSaving(true);
     try {
-      await supabase.from('cashflow_reports').insert([{
-        branch: user.branch,
-        date: today,
-        expenses: filled,
-        total_expenses: totalExp,
-        balance: -totalExp,
-        notes,
-      }]);
+      await saveCashflowReport(user.branch, today, filled);
       setSubmitted(true);
     } catch(e) {
       Alert.alert('Error', e.message);
