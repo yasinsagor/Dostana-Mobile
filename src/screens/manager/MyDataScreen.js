@@ -105,7 +105,7 @@ function trendArrow(p) {
 const DELIVERY_KEYS = ['wolt', 'glovo', 'uber_eats', 'bolt', 'pyszne'];
 const DELIVERY_LABELS = { wolt: 'Wolt', glovo: 'Glovo', uber_eats: 'Uber', bolt: 'Bolt', pyszne: 'Pyszne' };
 
-function SafeMyDataFallback({ branch, error, onRetry }) {
+function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(true);
   useEffect(() => {
@@ -128,13 +128,21 @@ function SafeMyDataFallback({ branch, error, onRetry }) {
       </View>
       {busy ? <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} /> : (
         <ScrollView contentContainerStyle={{ padding: 14 }}>
-          <View style={{ backgroundColor: '#FFF3E0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
-            <Text style={{ color: '#8A4B08', fontWeight: '700' }}>The detailed dashboard hit an unsupported record. Your data is safe and shown below.</Text>
-            <TouchableOpacity onPress={onRetry} style={{ marginTop: 10, alignSelf: 'flex-start', backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 }}>
-              <Text style={{ color: '#fff', fontWeight: '800' }}>Retry dashboard</Text>
-            </TouchableOpacity>
-            {error ? <Text style={{ color: '#A33', fontSize: 10, marginTop: 8 }}>{String(error).slice(0, 180)}</Text> : null}
-          </View>
+          {!compactOnly ? (
+            <View style={{ backgroundColor: '#FFF3E0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+              <Text style={{ color: '#8A4B08', fontWeight: '700' }}>The detailed dashboard hit an unsupported record. Your data is safe and shown below.</Text>
+              <TouchableOpacity onPress={onRetry} style={{ marginTop: 10, alignSelf: 'flex-start', backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 }}>
+                <Text style={{ color: '#fff', fontWeight: '800' }}>Retry dashboard</Text>
+              </TouchableOpacity>
+              {error ? <Text style={{ color: '#A33', fontSize: 10, marginTop: 8 }}>{String(error).slice(0, 180)}</Text> : null}
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+              <StatCard label="Revenue" value={`${fmtK(rows.reduce((sum, row) => sum + Number(row.total_revenue || row.utarg || 0), 0))} PLN`} />
+              <StatCard label="Expenses" value={`${fmtK(rows.reduce((sum, row) => sum + Number(row.total_expenses || 0), 0))} PLN`} color="#D32F2F" bg="#FFEBEE" />
+              <StatCard label="Hours" value={`${fmtK(rows.reduce((sum, row) => sum + Number(row.working_hours || 0), 0))}h`} color="#1565C0" bg="#E3F2FD" />
+            </View>
+          )}
           <Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>{rows.length} reports · last 3 months</Text>
           {rows.map(row => {
             const expenses = parseExp(row.cashflow_expenses || row.wydatki);
@@ -1349,7 +1357,11 @@ function ManagerMyDataContent() {
 
 export default function ManagerMyDataScreen() {
   const { user } = useAuth();
-  return <MyDataErrorBoundary branch={user?.branch || ''} />;
+  const branch = user?.branch || '';
+  if (branch.trim().toLocaleLowerCase('pl-PL') === 'turystyczna') {
+    return <SafeMyDataFallback branch={branch} compactOnly />;
+  }
+  return <MyDataErrorBoundary branch={branch} />;
 }
 
 /* ─── styles ───────────────────────────────────────────────── */
