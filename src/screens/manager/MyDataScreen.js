@@ -105,6 +105,70 @@ function trendArrow(p) {
 const DELIVERY_KEYS = ['wolt', 'glovo', 'uber_eats', 'bolt', 'pyszne'];
 const DELIVERY_LABELS = { wolt: 'Wolt', glovo: 'Glovo', uber_eats: 'Uber', bolt: 'Bolt', pyszne: 'Pyszne' };
 
+function SafeMyDataFallback({ branch, error, onRetry }) {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(true);
+  useEffect(() => {
+    let active = true;
+    const to = new Date().toISOString().slice(0, 10);
+    const fromDate = new Date();
+    fromDate.setMonth(fromDate.getMonth() - 3);
+    fetchDailyReports(branch, fromDate.toISOString().slice(0, 10), to)
+      .then(data => { if (active) setRows(data || []); })
+      .catch(() => {})
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [branch]);
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4F6F8' }}>
+      <View style={{ backgroundColor: '#fff', padding: 18, borderBottomWidth: 1, borderBottomColor: '#EEE' }}>
+        <Text style={{ fontSize: 20, fontWeight: '900', color: '#222' }}>My Data · {branch}</Text>
+        <Text style={{ marginTop: 4, color: '#777' }}>Safe report view</Text>
+      </View>
+      {busy ? <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} /> : (
+        <ScrollView contentContainerStyle={{ padding: 14 }}>
+          <View style={{ backgroundColor: '#FFF3E0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+            <Text style={{ color: '#8A4B08', fontWeight: '700' }}>The detailed dashboard hit an unsupported record. Your data is safe and shown below.</Text>
+            <TouchableOpacity onPress={onRetry} style={{ marginTop: 10, alignSelf: 'flex-start', backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>Retry dashboard</Text>
+            </TouchableOpacity>
+            {error ? <Text style={{ color: '#A33', fontSize: 10, marginTop: 8 }}>{String(error).slice(0, 180)}</Text> : null}
+          </View>
+          <Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>{rows.length} reports · last 3 months</Text>
+          {rows.map(row => {
+            const expenses = parseExp(row.cashflow_expenses || row.wydatki);
+            return (
+              <View key={row.id || `${row.branch}_${row.date}`} style={{ backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: COLORS.primary }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontWeight: '800', color: '#333' }}>{row.date}</Text>
+                  <Text style={{ fontWeight: '900', color: COLORS.primary }}>{fmtK(Number(row.total_revenue || row.utarg || 0))} PLN</Text>
+                </View>
+                <Text style={{ color: '#666', marginTop: 5 }}>{Number(row.working_hours || 0)}h · expenses {fmtK(Number(row.total_expenses || 0))} PLN</Text>
+                {expenses.length > 0 ? <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>{expenses.map(item => `${item.name}: ${fmtK(item.amount)}`).join(' · ')}</Text> : null}
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
+    </SafeAreaView>
+  );
+}
+
+class MyDataErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, retryKey: 0 };
+  }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('My Data render error', error, info); }
+  retry = () => this.setState(state => ({ error: null, retryKey: state.retryKey + 1 }));
+  render() {
+    if (this.state.error) return <SafeMyDataFallback branch={this.props.branch} error={this.state.error.message} onRetry={this.retry} />;
+    return <ManagerMyDataContent key={this.state.retryKey} />;
+  }
+}
+
 /* ─── mini components ───────────────────────────────────────── */
 function StatCard({ label, value, sub, color = COLORS.primary, bg = '#E8F5E9' }) {
   return (
@@ -158,7 +222,7 @@ const itb = StyleSheet.create({
 });
 
 /* ════════════════════════════════════════════════════════════ */
-export default function ManagerMyDataScreen() {
+function ManagerMyDataContent() {
   const { user } = useAuth();
   const branch = user?.branch || '';
   const [tab, setTab] = useState('Summary');
@@ -1281,6 +1345,11 @@ export default function ManagerMyDataScreen() {
       </Modal>
     </SafeAreaView>
   );
+}
+
+export default function ManagerMyDataScreen() {
+  const { user } = useAuth();
+  return <MyDataErrorBoundary branch={user?.branch || ''} />;
 }
 
 /* ─── styles ───────────────────────────────────────────────── */
