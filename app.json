@@ -9,7 +9,8 @@
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/52e07024-eb99-41f3-a1fe-60d126280701"
     },
     "runtimeVersion": {
       "policy": "sdkVersion"
@@ -22,13 +23,21 @@
     },
     "ios": {
       "supportsTablet": true,
-      "icon": "./assets/icon.png"
+      "icon": "./assets/icon.png",
+      "bundleIdentifier": "com.dostana.mobile",
+      "buildNumber": "10"
     },
     "android": {
       "package": "com.dostana.mobile",
+      "versionCode": 20,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1A1A1A"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "52e07024-eb99-41f3-a1fe-60d126280701"
       }
     },
     "plugins": [
@@ -40,7 +49,8 @@
             "targetSdkVersion": 34,
             "minSdkVersion": 24,
             "ndkVersion": "27.2.12479018",
-            "enableProguardInReleaseBuilds": false
+            "enableProguardInReleaseBuilds": false,
+            "enableMinifyInReleaseBuilds": false
           }
         }
       ],
