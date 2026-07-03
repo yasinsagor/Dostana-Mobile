@@ -1,12 +1,45 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const SUPABASE_URL = 'https://acpllsoigparbwmlwbem.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjcGxsc29pZ3BhcmJ3bWx3YmVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1NTI4MzksImV4cCI6MjA5NDEyODgzOX0.c_4fjYsq2R70-RW6psftZv96AG3R_Kxv-IHCH-E4L70';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://fqjblkdolxxawvvyoewr.supabase.co';
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_uYyqG984_qGCZkF-T4cOqA_Vlb1ibgU';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
 });
+
+// HACCP register. Mobile can read the approved instructions and append signed
+// entries. Register history is deliberately unavailable to the public client;
+// it is reviewed through the authenticated manager portal.
+export async function fetchHaccpInstructions() {
+  const { data, error } = await supabase
+    .from('haccp_instructions')
+    .select('code,register_type,title,description,steps,limits,sort_order')
+    .eq('active', true)
+    .order('sort_order');
+  if (error) throw error;
+  return data || [];
+}
+
+export async function insertHaccpEntry(entry) {
+  const { error } = await supabase.from('haccp_register_entries').insert([entry]);
+  if (error) throw error;
+}
+
+export async function fetchActiveBranches() {
+  const [settingsResult, reportsResult, ordersResult] = await Promise.all([
+    supabase.from('branch_settings').select('branch,pin').eq('active', true).order('branch'),
+    supabase.from('daily_reports').select('branch'),
+    supabase.from('spec_orders').select('branch'),
+  ]);
+  if (settingsResult.error) throw settingsResult.error;
+  const byName = new Map();
+  for (const item of settingsResult.data || []) byName.set(item.branch, { name: item.branch, pin: item.pin || '' });
+  for (const item of [...(reportsResult.data || []), ...(ordersResult.data || [])]) {
+    if (item.branch && !byName.has(item.branch)) byName.set(item.branch, { name: item.branch, pin: '' });
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 // Daily reports
 export async function fetchDailyReports(branch, from, to) {

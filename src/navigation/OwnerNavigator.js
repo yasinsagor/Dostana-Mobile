@@ -4,7 +4,6 @@ import { Text } from 'react-native';
 import { COLORS } from '../constants';
 
 import OwnerDashboardScreen    from '../screens/owner/DashboardScreen';
-import OwnerPerformanceScreen  from '../screens/owner/PerformanceScreen';
 import OwnerSpecScreen         from '../screens/owner/SpecScreen';
 import OwnerCashflowScreen     from '../screens/owner/CashflowScreen';
 import OwnerOperationsScreen   from '../screens/owner/OperationsScreen';
@@ -16,7 +15,6 @@ const Tab = createBottomTabNavigator();
 const tabs = [
   { name: 'Dashboard',  component: OwnerDashboardScreen,   icon: '🏠' },
   { name: 'Reports',    component: OwnerReportsScreen,     icon: '📋' },
-  { name: 'Performance',component: OwnerPerformanceScreen, icon: '📊' },
   { name: 'SPEC',       component: OwnerSpecScreen,        icon: '📦' },
   { name: 'Cash Flow',  component: OwnerCashflowScreen,    icon: '💰' },
   { name: 'Operations', component: OwnerOperationsScreen,  icon: '🛠' },

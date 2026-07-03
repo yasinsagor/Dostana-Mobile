@@ -9,7 +9,15 @@ export const BRANCHES = [
   { name: 'Mlawa', pin: '1008' },
   { name: 'Lodz', pin: '1009' },
   { name: 'Wroclawska', pin: '1010' },
+  { name: 'Lubartow', pin: '1011' },
 ];
+
+export function setRuntimeBranches(branches) {
+  const valid = (branches || [])
+    .map(item => ({ name: String(item.name || item.branch || '').trim(), pin: String(item.pin || '').trim() }))
+    .filter(item => item.name);
+  if (valid.length) BRANCHES.splice(0, BRANCHES.length, ...valid);
+}
 
 export const OWNER_PIN = '9999';
 export const SUPPLIER_PIN = '7777';
