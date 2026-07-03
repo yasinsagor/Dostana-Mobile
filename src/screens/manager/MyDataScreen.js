@@ -108,6 +108,8 @@ const DELIVERY_LABELS = { wolt: 'Wolt', glovo: 'Glovo', uber_eats: 'Uber', bolt:
 function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(true);
+  const [tab, setTab] = useState('Summary');
+  const [specRows, setSpecRows] = useState([]);
   useEffect(() => {
     let active = true;
     const to = new Date().toISOString().slice(0, 10);
@@ -120,12 +122,32 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
     return () => { active = false; };
   }, [branch]);
 
+  useEffect(() => {
+    if (!compactOnly || tab !== 'SPEC' || specRows.length > 0) return;
+    let active = true;
+    fetchSpecOrders(branch).then(data => { if (active) setSpecRows((data || []).slice(0, 20)); }).catch(() => {});
+    return () => { active = false; };
+  }, [compactOnly, tab, branch, specRows.length]);
+
+  const revenue = rows.reduce((sum, row) => sum + Number(row.total_revenue || row.utarg || 0), 0);
+  const expensesTotal = rows.reduce((sum, row) => sum + Number(row.total_expenses || 0), 0);
+  const hoursTotal = rows.reduce((sum, row) => sum + Number(row.working_hours || 0), 0);
+  const staff = {};
+  rows.forEach(row => {
+    const workers = Array.isArray(row.worker_hours) ? row.worker_hours : [];
+    workers.forEach(worker => {
+      const name = String(worker?.name || 'Unassigned');
+      staff[name] = (staff[name] || 0) + Number(worker?.hours || 0);
+    });
+  });
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F4F6F8' }}>
       <View style={{ backgroundColor: '#fff', padding: 18, borderBottomWidth: 1, borderBottomColor: '#EEE' }}>
-        <Text style={{ fontSize: 20, fontWeight: '900', color: '#222' }}>My Data · {branch}</Text>
-        <Text style={{ marginTop: 4, color: '#777' }}>Safe report view</Text>
+        <Text style={{ fontSize: 20, fontWeight: '900', color: '#222' }}>📊 {branch}</Text>
+        <Text style={{ marginTop: 4, color: '#777' }}>{new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' })}</Text>
       </View>
+      {compactOnly ? <InnerTabBar active={tab} onPress={setTab} /> : null}
       {busy ? <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} /> : (
         <ScrollView contentContainerStyle={{ padding: 14 }}>
           {!compactOnly ? (
@@ -136,27 +158,36 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
               </TouchableOpacity>
               {error ? <Text style={{ color: '#A33', fontSize: 10, marginTop: 8 }}>{String(error).slice(0, 180)}</Text> : null}
             </View>
-          ) : (
+          ) : tab === 'Summary' ? (
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-              <StatCard label="Revenue" value={`${fmtK(rows.reduce((sum, row) => sum + Number(row.total_revenue || row.utarg || 0), 0))} PLN`} />
-              <StatCard label="Expenses" value={`${fmtK(rows.reduce((sum, row) => sum + Number(row.total_expenses || 0), 0))} PLN`} color="#D32F2F" bg="#FFEBEE" />
-              <StatCard label="Hours" value={`${fmtK(rows.reduce((sum, row) => sum + Number(row.working_hours || 0), 0))}h`} color="#1565C0" bg="#E3F2FD" />
+              <StatCard label="Revenue" value={`${fmtK(revenue)} PLN`} />
+              <StatCard label="Expenses" value={`${fmtK(expensesTotal)} PLN`} color="#D32F2F" bg="#FFEBEE" />
+              <StatCard label="Hours" value={`${fmtK(hoursTotal)}h`} color="#1565C0" bg="#E3F2FD" />
             </View>
-          )}
-          <Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>{rows.length} reports · last 3 months</Text>
-          {rows.map(row => {
+          ) : null}
+          {compactOnly && tab === 'Summary' ? (
+            <SectionCard title="Performance overview"><Text style={{ color: '#555', lineHeight: 24 }}>Average per day: {fmtK(rows.length ? revenue / rows.length : 0)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Revenue per hour: {fmtK(hoursTotal ? revenue / hoursTotal : 0)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Balance: {fmtK(revenue - expensesTotal)} PLN</Text></SectionCard>
+          ) : null}
+          {compactOnly && tab === 'Daily' ? <Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>📋 {rows.length} reports · last 3 months</Text> : null}
+          {compactOnly && tab === 'Cash' ? <View style={{ flexDirection: 'row', marginBottom: 8 }}><StatCard label="Expenses" value={`${fmtK(expensesTotal)} PLN`} color="#D32F2F" bg="#FFEBEE" /><StatCard label="Balance" value={`${fmtK(revenue - expensesTotal)} PLN`} /></View> : null}
+          {compactOnly && (tab === 'Daily' || tab === 'Cash') ? rows.map(row => {
             const expenses = parseExp(row.cashflow_expenses || row.wydatki);
+            if (tab === 'Cash' && expenses.length === 0 && !Number(row.total_expenses || 0)) return null;
             return (
-              <View key={row.id || `${row.branch}_${row.date}`} style={{ backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: COLORS.primary }}>
+              <View key={row.id || `${row.branch}_${row.date}`} style={{ backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: tab === 'Cash' ? '#D32F2F' : COLORS.primary }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <Text style={{ fontWeight: '800', color: '#333' }}>{row.date}</Text>
-                  <Text style={{ fontWeight: '900', color: COLORS.primary }}>{fmtK(Number(row.total_revenue || row.utarg || 0))} PLN</Text>
+                  <Text style={{ fontWeight: '900', color: tab === 'Cash' ? '#D32F2F' : COLORS.primary }}>{fmtK(Number(tab === 'Cash' ? row.total_expenses : (row.total_revenue || row.utarg || 0)))} PLN</Text>
                 </View>
                 <Text style={{ color: '#666', marginTop: 5 }}>{Number(row.working_hours || 0)}h · expenses {fmtK(Number(row.total_expenses || 0))} PLN</Text>
                 {expenses.length > 0 ? <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>{expenses.map(item => `${item.name}: ${fmtK(item.amount)}`).join(' · ')}</Text> : null}
               </View>
             );
-          })}
+          }) : null}
+          {compactOnly && tab === 'Staff' ? <SectionCard title="Staff hours" color="#1565C0">{Object.entries(staff).sort((a,b) => b[1] - a[1]).map(([name, hours]) => <View key={name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#EEE' }}><Text style={{ fontWeight: '700', color: '#444' }}>{name}</Text><Text style={{ fontWeight: '900', color: '#1565C0' }}>{fmtK(hours)}h</Text></View>)}</SectionCard> : null}
+          {compactOnly && tab === 'SPEC' ? <><Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>📦 {specRows.length} recent orders</Text>{specRows.map(order => <View key={order.id} style={{ backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: '#6A1B9A' }}><Text style={{ fontWeight: '800' }}>{order.date}</Text><Text style={{ color: '#777', marginTop: 4 }}>{extractItems(order.items).length} items</Text></View>)}</> : null}
+          {compactOnly && tab === 'Rank' ? <SectionCard title="Branch performance"><Text style={{ fontSize: 28, color: COLORS.primary, fontWeight: '900', textAlign: 'center' }}>{fmtK(revenue)} PLN</Text><Text style={{ color: '#777', textAlign: 'center', marginTop: 5 }}>{branch} · last 3 months</Text></SectionCard> : null}
+          {compactOnly && tab === 'Report' ? <SectionCard title="Report summary"><Text style={{ color: '#555', lineHeight: 24 }}>Reports: {rows.length}</Text><Text style={{ color: '#555', lineHeight: 24 }}>Revenue: {fmtK(revenue)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Expenses: {fmtK(expensesTotal)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Hours: {fmtK(hoursTotal)}h</Text></SectionCard> : null}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -1374,6 +1405,7 @@ export default function ManagerMyDataScreen() {
   const { user } = useAuth();
   const branch = user?.branch || '';
   const deferHeavy = branch.trim().toLocaleLowerCase('pl-PL') === 'turystyczna';
+  if (deferHeavy) return <SafeMyDataFallback branch={branch} compactOnly />;
   return <MyDataErrorBoundary branch={branch} deferHeavy={deferHeavy} />;
 }
 
