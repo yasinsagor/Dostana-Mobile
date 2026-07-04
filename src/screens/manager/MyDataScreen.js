@@ -110,12 +110,13 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
   const [busy, setBusy] = useState(true);
   const [tab, setTab] = useState('Summary');
   const [specRows, setSpecRows] = useState([]);
+  const [viewPeriod, setViewPeriod] = useState('this');
+  const [viewFrom, setViewFrom] = useState('');
+  const [viewTo, setViewTo] = useState('');
   useEffect(() => {
     let active = true;
     const to = new Date().toISOString().slice(0, 10);
-    const fromDate = new Date();
-    fromDate.setMonth(fromDate.getMonth() - 3);
-    fetchDailyReports(branch, fromDate.toISOString().slice(0, 10), to)
+    fetchDailyReports(branch, '2020-01-01', to)
       .then(data => { if (active) setRows(data || []); })
       .catch(() => {})
       .finally(() => { if (active) setBusy(false); });
@@ -129,11 +130,17 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
     return () => { active = false; };
   }, [compactOnly, tab, branch, specRows.length]);
 
-  const revenue = rows.reduce((sum, row) => sum + Number(row.total_revenue || row.utarg || 0), 0);
-  const expensesTotal = rows.reduce((sum, row) => sum + Number(row.total_expenses || 0), 0);
-  const hoursTotal = rows.reduce((sum, row) => sum + Number(row.working_hours || 0), 0);
+  const currentRange = monthRange();
+  const previousRange = lastMonthRange();
+  const activeRange = viewPeriod === 'last' ? previousRange : viewPeriod === 'custom'
+    ? { from: viewFrom || '2020-01-01', to: viewTo || new Date().toISOString().slice(0, 10) }
+    : currentRange;
+  const visibleRows = rows.filter(row => row.date >= activeRange.from && row.date <= activeRange.to);
+  const revenue = visibleRows.reduce((sum, row) => sum + Number(row.total_revenue || row.utarg || 0), 0);
+  const expensesTotal = visibleRows.reduce((sum, row) => sum + Number(row.total_expenses || 0), 0);
+  const hoursTotal = visibleRows.reduce((sum, row) => sum + Number(row.working_hours || 0), 0);
   const staff = {};
-  rows.forEach(row => {
+  visibleRows.forEach(row => {
     const workers = Array.isArray(row.worker_hours) ? row.worker_hours : [];
     workers.forEach(worker => {
       const name = String(worker?.name || 'Unassigned');
@@ -148,6 +155,7 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
         <Text style={{ marginTop: 4, color: '#777' }}>{new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' })}</Text>
       </View>
       {compactOnly ? <InnerTabBar active={tab} onPress={setTab} /> : null}
+      {compactOnly ? <View style={{ backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 9 }}><View style={{ flexDirection: 'row', gap: 7 }}>{[['this','This Month'],['last','Last Month'],['custom','Custom']].map(([key,label]) => <TouchableOpacity key={key} onPress={() => setViewPeriod(key)} style={{ flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center', backgroundColor: viewPeriod === key ? COLORS.primary : '#F1F3F4' }}><Text style={{ fontSize: 11, fontWeight: '800', color: viewPeriod === key ? '#fff' : '#555' }}>{label}</Text></TouchableOpacity>)}</View>{viewPeriod === 'custom' ? <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}><TextInput style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 8 }} value={viewFrom} onChangeText={setViewFrom} placeholder="YYYY-MM-DD" /><TextInput style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 8 }} value={viewTo} onChangeText={setViewTo} placeholder="YYYY-MM-DD" /></View> : null}</View> : null}
       {busy ? <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} /> : (
         <ScrollView contentContainerStyle={{ padding: 14 }}>
           {!compactOnly ? (
@@ -166,11 +174,11 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
             </View>
           ) : null}
           {compactOnly && tab === 'Summary' ? (
-            <SectionCard title="Performance overview"><Text style={{ color: '#555', lineHeight: 24 }}>Average per day: {fmtK(rows.length ? revenue / rows.length : 0)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Revenue per hour: {fmtK(hoursTotal ? revenue / hoursTotal : 0)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Balance: {fmtK(revenue - expensesTotal)} PLN</Text></SectionCard>
+            <SectionCard title="Performance overview"><Text style={{ color: '#555', lineHeight: 24 }}>Average per day: {fmtK(visibleRows.length ? revenue / visibleRows.length : 0)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Revenue per hour: {fmtK(hoursTotal ? revenue / hoursTotal : 0)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Balance: {fmtK(revenue - expensesTotal)} PLN</Text></SectionCard>
           ) : null}
-          {compactOnly && tab === 'Daily' ? <Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>📋 {rows.length} reports · last 3 months</Text> : null}
+          {compactOnly && tab === 'Daily' ? <Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>📋 {visibleRows.length} reports</Text> : null}
           {compactOnly && tab === 'Cash' ? <View style={{ flexDirection: 'row', marginBottom: 8 }}><StatCard label="Expenses" value={`${fmtK(expensesTotal)} PLN`} color="#D32F2F" bg="#FFEBEE" /><StatCard label="Balance" value={`${fmtK(revenue - expensesTotal)} PLN`} /></View> : null}
-          {compactOnly && (tab === 'Daily' || tab === 'Cash') ? rows.map(row => {
+          {compactOnly && (tab === 'Daily' || tab === 'Cash') ? visibleRows.map(row => {
             const expenses = parseExp(row.cashflow_expenses || row.wydatki);
             if (tab === 'Cash' && expenses.length === 0 && !Number(row.total_expenses || 0)) return null;
             return (
@@ -187,7 +195,7 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
           {compactOnly && tab === 'Staff' ? <SectionCard title="Staff hours" color="#1565C0">{Object.entries(staff).sort((a,b) => b[1] - a[1]).map(([name, hours]) => <View key={name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#EEE' }}><Text style={{ fontWeight: '700', color: '#444' }}>{name}</Text><Text style={{ fontWeight: '900', color: '#1565C0' }}>{fmtK(hours)}h</Text></View>)}</SectionCard> : null}
           {compactOnly && tab === 'SPEC' ? <><Text style={{ fontWeight: '800', color: '#555', marginBottom: 8 }}>📦 {specRows.length} recent orders</Text>{specRows.map(order => <View key={order.id} style={{ backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: '#6A1B9A' }}><Text style={{ fontWeight: '800' }}>{order.date}</Text><Text style={{ color: '#777', marginTop: 4 }}>{extractItems(order.items).length} items</Text></View>)}</> : null}
           {compactOnly && tab === 'Rank' ? <SectionCard title="Branch performance"><Text style={{ fontSize: 28, color: COLORS.primary, fontWeight: '900', textAlign: 'center' }}>{fmtK(revenue)} PLN</Text><Text style={{ color: '#777', textAlign: 'center', marginTop: 5 }}>{branch} · last 3 months</Text></SectionCard> : null}
-          {compactOnly && tab === 'Report' ? <SectionCard title="Report summary"><Text style={{ color: '#555', lineHeight: 24 }}>Reports: {rows.length}</Text><Text style={{ color: '#555', lineHeight: 24 }}>Revenue: {fmtK(revenue)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Expenses: {fmtK(expensesTotal)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Hours: {fmtK(hoursTotal)}h</Text></SectionCard> : null}
+          {compactOnly && tab === 'Report' ? <SectionCard title="Report summary"><Text style={{ color: '#555', lineHeight: 24 }}>Reports: {visibleRows.length}</Text><Text style={{ color: '#555', lineHeight: 24 }}>Revenue: {fmtK(revenue)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Expenses: {fmtK(expensesTotal)} PLN</Text><Text style={{ color: '#555', lineHeight: 24 }}>Hours: {fmtK(hoursTotal)}h</Text></SectionCard> : null}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -268,6 +276,9 @@ function ManagerMyDataContent({ deferHeavy = false }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState({});
+  const [viewPeriod, setViewPeriod] = useState('this');
+  const [viewFrom, setViewFrom] = useState('');
+  const [viewTo, setViewTo] = useState('');
 
   /* data */
   const [dr, setDr] = useState([]);       // current month
@@ -296,28 +307,31 @@ function ManagerMyDataContent({ deferHeavy = false }) {
   const { from: lfrom, to: lto } = lastMonthRange();
   const histFrom = threeMonthsAgo();
   const today = new Date().toISOString().slice(0, 10);
+  const activeRange = viewPeriod === 'last' ? { from: lfrom, to: lto } : viewPeriod === 'custom'
+    ? { from: viewFrom || '2020-01-01', to: viewTo || today }
+    : { from, to };
 
   const load = useCallback(async () => {
     try {
       const [dCur, dHist, cCur, cHist, s, dl, all] = await Promise.all([
-        fetchDailyReports(branch, from, to),
-        fetchDailyReports(branch, histFrom, today),
-        fetchCashflowReports(branch, from, to),
-        fetchCashflowReports(branch, histFrom, today),
+        fetchDailyReports(branch, activeRange.from, activeRange.to),
+        fetchDailyReports(branch, activeRange.from, activeRange.to),
+        fetchCashflowReports(branch, activeRange.from, activeRange.to),
+        fetchCashflowReports(branch, activeRange.from, activeRange.to),
         deferHeavy ? Promise.resolve([]) : fetchSpecOrders(branch),
         fetchDailyReports(branch, lfrom, lto),
-        deferHeavy ? Promise.resolve([]) : fetchAllDailyReports(from, to),
+        deferHeavy ? Promise.resolve([]) : fetchAllDailyReports(activeRange.from, activeRange.to),
       ]);
       setDr(dCur || []);
       setDrAll(dHist || []);
       setCf(cCur || []);
       setCfAll(cHist || []);
-      setSpec((s || []).slice(0, 60));
+      setSpec((s || []).filter(item => (item.date || '') >= activeRange.from && (item.date || '') <= activeRange.to).slice(0, 60));
       setDrLast(dl || []);
       setAllDr(all || []);
     } catch (e) { console.error(e); }
     setLoading(false); setRefreshing(false);
-  }, [branch, from, to, lfrom, lto, histFrom, today, deferHeavy]);
+  }, [branch, from, to, lfrom, lto, histFrom, today, deferHeavy, activeRange.from, activeRange.to]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -851,6 +865,16 @@ function ManagerMyDataContent({ deferHeavy = false }) {
       </View>
 
       <InnerTabBar active={tab} onPress={setTab} />
+      <View style={{ backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 9 }}>
+        <View style={{ flexDirection: 'row', gap: 7 }}>
+          {[['this','This Month'],['last','Last Month'],['custom','Custom']].map(([key,label]) => (
+            <TouchableOpacity key={key} onPress={() => setViewPeriod(key)} style={{ flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center', backgroundColor: viewPeriod === key ? COLORS.primary : '#F1F3F4' }}>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: viewPeriod === key ? '#fff' : '#555' }}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        {viewPeriod === 'custom' ? <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}><TextInput style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 8 }} value={viewFrom} onChangeText={setViewFrom} placeholder="YYYY-MM-DD" /><TextInput style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 8 }} value={viewTo} onChangeText={setViewTo} placeholder="YYYY-MM-DD" /></View> : null}
+      </View>
 
       <ScrollView
         contentContainerStyle={s.content}

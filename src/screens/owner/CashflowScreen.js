@@ -68,14 +68,13 @@ export default function OwnerCashflowScreen() {
       const wkAgo = new Date(); wkAgo.setDate(wkAgo.getDate()-6);
       const wkFrom = wkAgo.toISOString().slice(0,10);
       const today = new Date().toISOString().slice(0,10);
-      const [cfRes, drData, spRes, lmDR, trendData] = await Promise.all([
-        supabase.from('cashflow_reports').select('*').gte('date',from).lte('date',to).order('date',{ascending:false}),
+      const [drData, spRes, lmDR, trendData] = await Promise.all([
         fetchAllDailyReports(from, to),
         supabase.from('spec_orders').select('*').gte('date',from).lte('date',to),
         fetchAllDailyReports(lm.from, lm.to),
         fetchAllDailyReports(wkFrom, today),
       ]);
-      setCfReports(cfRes.data||[]);
+      setCfReports((drData || []).map(row => ({ ...row, expenses: row.cashflow_expenses || row.wydatki || [] })));
       setDrReports(drData||[]);
       setSpecOrders(spRes.data||[]);
       setLastDR(lmDR||[]);
@@ -90,7 +89,7 @@ export default function OwnerCashflowScreen() {
   const chainRevenue = drReports.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
   const chainCF = cfReports.reduce((s,r)=>s+(r.total_expenses||r.total||0),0);
   const chainSpec = specOrders.reduce((s,o)=>s+(o.total_cost||o.total||0),0);
-  const chainHours = drReports.reduce((s,r)=>s+(r.hours||0),0);
+  const chainHours = drReports.reduce((s,r)=>s+(r.working_hours||r.hours||0),0);
   const chainLabor = chainHours * LABOR_RATE;
   const chainProfit = chainRevenue - chainCF - chainSpec;
   const chainMargin = chainRevenue>0 ? chainProfit/chainRevenue*100 : 0;
@@ -125,7 +124,7 @@ export default function OwnerCashflowScreen() {
     const revenue = bDR.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
     const cfExp = bCF.reduce((s,r)=>s+(r.total_expenses||r.total||0),0);
     const specCost = bSpec.reduce((s,o)=>s+(o.total_cost||o.total||0),0);
-    const hours = bDR.reduce((s,r)=>s+(r.hours||0),0);
+    const hours = bDR.reduce((s,r)=>s+(r.working_hours||r.hours||0),0);
     const laborEst = hours * LABOR_RATE;
     const estProfit = revenue - cfExp - specCost;
     const margin = revenue>0 ? estProfit/revenue*100 : 0;

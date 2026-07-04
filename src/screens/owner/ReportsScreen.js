@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
-import { supabase } from '../../lib/supabase';
+import { supabase, fetchAllDailyReports } from '../../lib/supabase';
 import { COLORS, BRANCHES } from '../../constants';
 
 /* ─── helpers ─────────────────────────────────────────────── */
@@ -32,6 +32,12 @@ function parseExp(raw) {
     if (!amount && name && !SKIP.has(name)) amount = Number(e[name]) || 0;
     return { name, amount, category: e.category || e.kategoria || e.cat || '' };
   });
+}
+
+function parseItems(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') { try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : []; } catch {} }
+  return [];
 }
 function expAmt(e) { return Number(e.amount ?? e.Amount ?? e.kwota ?? e.value ?? 0); }
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -563,6 +569,7 @@ export default function OwnerReportsScreen() {
   const [search, setSearch]       = useState('');
   const [dailyData, setDailyData] = useState([]);
   const [cashData, setCashData]   = useState([]);
+  const [specData, setSpecData]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -576,12 +583,13 @@ export default function OwnerReportsScreen() {
   const load = useCallback(async () => {
     const { from, to } = getRange();
     try {
-      const [drRes, cfRes] = await Promise.all([
-        supabase.from('daily_reports').select('*').gte('date', from).lte('date', to).order('date', { ascending: false }),
-        supabase.from('cashflow_reports').select('*').gte('date', from).lte('date', to).order('date', { ascending: false }),
+      const [daily, spRes] = await Promise.all([
+        fetchAllDailyReports(from, to),
+        supabase.from('spec_orders').select('*').gte('date', from).lte('date', to).order('date', { ascending: false }),
       ]);
-      setDailyData(drRes.data || []);
-      setCashData(cfRes.data  || []);
+      setDailyData(daily || []);
+      setCashData((daily || []).map(row => ({ ...row, expenses: row.cashflow_expenses || row.wydatki || [] })));
+      setSpecData(spRes.data || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); setRefreshing(false); }
   }, [getRange]);
@@ -597,7 +605,8 @@ export default function OwnerReportsScreen() {
   };
   const filtDaily = applyFilters(dailyData);
   const filtCash  = applyFilters(cashData);
-  const activeData = tab === 'Daily' ? filtDaily : filtCash;
+  const filtSpec  = applyFilters(specData);
+  const activeData = tab === 'Cash Flow' ? filtCash : tab === 'SPEC' ? filtSpec : filtDaily;
 
   /* ── group by branch for "All" view ── */
   const groupByBranch = (records) => {
@@ -618,18 +627,25 @@ export default function OwnerReportsScreen() {
     const stamp = todayStr();
     try {
       if (format === 'pdf') {
-        const html = tab === 'Daily'
-          ? buildDailyHTML(filtDaily, filtCash, label)
-          : buildCashHTML(filtCash, filtDaily, label);
+        const html = tab === 'Daily' ? buildDailyHTML(filtDaily, filtCash, label)
+          : tab === 'Cash Flow' ? buildCashHTML(filtCash, filtDaily, label)
+          : tab === 'Hours' ? buildDailyHTML(filtDaily, [], label)
+          : `<!doctype html><html><body><h1>${label}</h1><table border="1" cellspacing="0" cellpadding="6"><tr><th>Date</th><th>Branch</th><th>Items</th></tr>${filtSpec.map(order=>`<tr><td>${order.date||''}</td><td>${order.branch||''}</td><td>${parseItems(order.items).map(item=>`${item.name||''} × ${item.qty||0}`).join(', ')}</td></tr>`).join('')}</table></body></html>`;
         await exportPDF(html, label);
       } else if (format === 'csv') {
         let csv, fn;
         if (tab === 'Daily') {
           csv = buildDailyCSV(filtDaily, filtCash) + '\n\n' + buildHoursCSV(filtDaily);
           fn  = `dostana_daily_${stamp}.csv`;
-        } else {
+        } else if (tab === 'Cash Flow') {
           csv = buildCashCSV(filtCash, filtDaily);
           fn  = `dostana_cashflow_${stamp}.csv`;
+        } else if (tab === 'Hours') {
+          csv = buildHoursCSV(filtDaily);
+          fn = `dostana_hours_${stamp}.csv`;
+        } else {
+          csv = ['Date,Branch,Items', ...filtSpec.map(order => `"${order.date||''}","${order.branch||''}","${parseItems(order.items).map(item=>`${item.name||''} x ${item.qty||0}`).join('; ').replace(/"/g,'""')}"`)].join('\n');
+          fn = `dostana_spec_${stamp}.csv`;
         }
         await exportCSV(csv, fn);
       } else {
@@ -648,7 +664,7 @@ export default function OwnerReportsScreen() {
             const s2 = r.total_revenue||r.revenue||0;
             lines.push(`${fmtDate(r.date)} ${r.branch||''}: ${fmtNum(s2)} PLN`);
           });
-        } else {
+        } else if (tab === 'Cash Flow') {
           const tInc = filtDaily.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
           const tExp = filtCash.reduce((s,r)=>s+(r.total_expenses||r.total||0),0);
           lines.push(`Total Income: ${fmtNum(tInc)} PLN`);
@@ -658,6 +674,12 @@ export default function OwnerReportsScreen() {
             const tot = r.total_expenses||r.total||0;
             lines.push(`${fmtDate(r.date)} ${r.branch||''}: ${fmtNum(tot)} PLN`);
           });
+        } else if (tab === 'Hours') {
+          lines.push(`Total Hours: ${fmtNum(filtDaily.reduce((sum,row)=>sum+Number(row.working_hours||0),0))}h\n`);
+          filtDaily.slice(0,50).forEach(row => lines.push(`${fmtDate(row.date)} ${row.branch||''}: ${fmtNum(Number(row.working_hours||0))}h`));
+        } else {
+          lines.push(`SPEC Orders: ${filtSpec.length}\n`);
+          filtSpec.slice(0,50).forEach(order => lines.push(`${fmtDate(order.date)} ${order.branch||''}: ${parseItems(order.items).length} items`));
         }
         await exportText(lines.join('\n'));
       }
@@ -672,14 +694,14 @@ export default function OwnerReportsScreen() {
       {/* Header */}
       <View style={s.header}>
         <Text style={s.title}>📋 Reports</Text>
-        <Text style={s.sub}>Daily & Cash Flow · All Branches</Text>
+        <Text style={s.sub}>Daily · Cash Flow · Hours · SPEC</Text>
       </View>
 
       {/* Report type tabs */}
       <View style={s.typeTabs}>
-        {['Daily', 'Cash Flow'].map(t => (
+        {['Daily', 'Cash Flow', 'Hours', 'SPEC'].map(t => (
           <TouchableOpacity key={t} style={[s.typeTab, tab === t && s.typeTabActive]} onPress={() => setTab(t)} activeOpacity={0.8}>
-            <Text style={[s.typeTabTxt, tab === t && s.typeTabActive2]}>{t === 'Daily' ? '📅 Daily' : '💰 Cash Flow'}</Text>
+            <Text style={[s.typeTabTxt, tab === t && s.typeTabActive2]}>{t === 'Daily' ? '📅 Daily' : t === 'Cash Flow' ? '💰 Cash' : t === 'Hours' ? '⏱ Hours' : '📦 SPEC'}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -761,6 +783,17 @@ export default function OwnerReportsScreen() {
                 : filtDaily.map((r, i) => <DailyCard key={i} record={r} showBranch={branch === 'All'} />)
             }
           </>
+        ) : tab === 'Hours' ? (
+          <>
+            <View style={s.summaryStrip}><View style={s.sumCell}><Text style={s.sumVal}>{fmtNum(filtDaily.reduce((sum,row)=>sum+Number(row.working_hours||0),0))}h</Text><Text style={s.sumLbl}>Total Hours</Text></View><View style={s.sumCell}><Text style={s.sumVal}>{new Set(filtDaily.flatMap(row => (Array.isArray(row.worker_hours) ? row.worker_hours : []).map(worker => worker.name).filter(Boolean))).size}</Text><Text style={s.sumLbl}>Staff</Text></View></View>
+            <Text style={s.countTxt}>{filtDaily.length} daily hour records</Text>
+            {filtDaily.length === 0 ? <View style={s.empty}><Text style={s.emptyTxt}>No hours for this filter</Text></View> : filtDaily.map((row,i) => <View key={row.id||i} style={s.reportCard}><View style={s.cardTop}><Text style={s.cardDate}>{fmtDate(row.date)}</Text><Text style={s.cardAmount}>{fmtNum(Number(row.working_hours||0))}h</Text></View><Text style={s.cardBranch}>{row.branch}</Text>{(Array.isArray(row.worker_hours)?row.worker_hours:[]).map((worker,index)=><Text key={index} style={s.cardMeta}>{worker.name}: {worker.hours}h</Text>)}</View>)}
+          </>
+        ) : tab === 'SPEC' ? (
+          <>
+            <Text style={s.countTxt}>{filtSpec.length} SPEC orders</Text>
+            {filtSpec.length === 0 ? <View style={s.empty}><Text style={s.emptyTxt}>No SPEC orders for this filter</Text></View> : filtSpec.map((order,i) => { const items=parseItems(order.items); return <View key={order.id||i} style={s.reportCard}><View style={s.cardTop}><Text style={s.cardDate}>{fmtDate(order.date)}</Text><Text style={[s.cardAmount,{color:'#6A1B9A'}]}>{items.length} items</Text></View><Text style={s.cardBranch}>{order.branch}</Text><Text style={s.cardMeta}>{items.slice(0,6).map(item=>`${item.name} × ${item.qty||0}`).join(' · ')}</Text></View>; })}
+          </>
         ) : (
           <>
             {filtCash.length > 0 && <CashSummaryStrip cfData={filtCash} drData={filtDaily} />}
@@ -808,6 +841,16 @@ const s = StyleSheet.create({
   content:       { padding: 14, paddingTop: 8 },
   center:        { paddingTop: 60, alignItems: 'center' },
   countTxt:      { fontSize: 12, color: '#888', fontWeight: '700', marginBottom: 8 },
+  summaryStrip:  { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 12, marginBottom: 10, padding: 10 },
+  sumCell:       { flex: 1, alignItems: 'center' },
+  sumVal:        { fontSize: 18, fontWeight: '900', color: COLORS.primary },
+  sumLbl:        { fontSize: 10, color: '#888', marginTop: 2 },
+  reportCard:    { backgroundColor: '#fff', borderRadius: 12, padding: 13, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: COLORS.primary },
+  cardTop:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardDate:      { fontSize: 14, fontWeight: '800', color: '#333' },
+  cardAmount:    { fontSize: 15, fontWeight: '900', color: COLORS.primary },
+  cardBranch:    { fontSize: 12, fontWeight: '700', color: '#666', marginTop: 4 },
+  cardMeta:      { fontSize: 11, color: '#888', marginTop: 3, lineHeight: 16 },
   empty:         { paddingVertical: 40, alignItems: 'center' },
   emptyTxt:      { fontSize: 14, color: '#bbb' },
 });
