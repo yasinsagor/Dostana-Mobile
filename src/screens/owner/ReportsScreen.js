@@ -492,6 +492,18 @@ function buildDailyHTML(drRecords, cfRecords, title) {
   </body></html>`;
 }
 
+function buildHoursHTML(records, title) {
+  const sorted=[...records].sort((a,b)=>a.date.localeCompare(b.date));
+  const people={}; let total=0;
+  const dailyRows=sorted.map(report => {
+    const workers=Array.isArray(report.worker_hours)?report.worker_hours:[];
+    if (workers.length===0) { const h=Number(report.working_hours||0); total+=h; people.Unassigned=(people.Unassigned||0)+h; return `<tr><td>${fmtDate(report.date)}</td><td>${report.branch||''}</td><td>Unassigned</td><td>${h}h</td></tr>`; }
+    return workers.map((worker,index)=>{ const h=Number(worker.hours||0); total+=h; const name=worker.name||'Unassigned'; people[name]=(people[name]||0)+h; return `<tr><td>${index===0?fmtDate(report.date):''}</td><td>${index===0?(report.branch||''):''}</td><td>${name}</td><td>${h}h</td></tr>`; }).join('');
+  }).join('');
+  const totals=Object.entries(people).sort((a,b)=>b[1]-a[1]).map(([name,hours])=>`<tr><td>${name}</td><td>${hours}h</td></tr>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${REPORT_CSS}</style></head><body><h1>⏱ ${title}</h1><div class="meta">Wygenerowano: ${new Date().toLocaleString('pl-PL')}</div><h2>Employee totals</h2><table><thead><tr><th>Employee</th><th>Total Hours</th></tr></thead><tbody>${totals}<tr class="total-row"><td>TOTAL</td><td>${total}h</td></tr></tbody></table><h2>Day-by-day details</h2><table><thead><tr><th>Date</th><th>Branch</th><th>Employee</th><th>Hours</th></tr></thead><tbody>${dailyRows}</tbody></table></body></html>`;
+}
+
 function buildCashHTML(cfRecords, drRecords, title) {
   const sorted = [...cfRecords].sort((a,b)=>a.date.localeCompare(b.date));
   const drMap  = Object.fromEntries((drRecords||[]).map(r=>[r.date,r]));
@@ -514,10 +526,15 @@ function buildCashHTML(cfRecords, drRecords, title) {
     }).join('');
   }).join('');
 
+  const categories={};
+  sorted.forEach(report => parseExp(report.expenses).forEach(item => { const name=item.name||'Other'; categories[name]=(categories[name]||0)+Number(item.amount||0); }));
+  const categoryRows=Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([name,amount])=>`<tr><td>${name}</td><td>${fmtNum(amount)}</td></tr>`).join('');
+
   const bal = tInc - tExp;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${REPORT_CSS}</style></head><body>
   <h1>💰 ${title}</h1>
   <div class="meta">Wygenerowano: ${new Date().toLocaleString('pl-PL')}</div>
+  <h2>Cost by Category</h2><table><thead><tr><th>Category</th><th>Total</th></tr></thead><tbody>${categoryRows}</tbody></table>
   <h2>Cash Flow Report</h2>
   <table>
     <thead><tr>${branchTh}<th>Date</th><th>Income</th><th>Purpose of Expenses</th><th>Amount</th></tr></thead>
@@ -629,7 +646,7 @@ export default function OwnerReportsScreen() {
       if (format === 'pdf') {
         const html = tab === 'Daily' ? buildDailyHTML(filtDaily, filtCash, label)
           : tab === 'Cash Flow' ? buildCashHTML(filtCash, filtDaily, label)
-          : tab === 'Hours' ? buildDailyHTML(filtDaily, [], label)
+          : tab === 'Hours' ? buildHoursHTML(filtDaily, label)
           : `<!doctype html><html><body><h1>${label}</h1><table border="1" cellspacing="0" cellpadding="6"><tr><th>Date</th><th>Branch</th><th>Items</th></tr>${filtSpec.map(order=>`<tr><td>${order.date||''}</td><td>${order.branch||''}</td><td>${parseItems(order.items).map(item=>`${item.name||''} × ${item.qty||0}`).join(', ')}</td></tr>`).join('')}</table></body></html>`;
         await exportPDF(html, label);
       } else if (format === 'csv') {
@@ -786,6 +803,7 @@ export default function OwnerReportsScreen() {
         ) : tab === 'Hours' ? (
           <>
             <View style={s.summaryStrip}><View style={s.sumCell}><Text style={s.sumVal}>{fmtNum(filtDaily.reduce((sum,row)=>sum+Number(row.working_hours||0),0))}h</Text><Text style={s.sumLbl}>Total Hours</Text></View><View style={s.sumCell}><Text style={s.sumVal}>{new Set(filtDaily.flatMap(row => (Array.isArray(row.worker_hours) ? row.worker_hours : []).map(worker => worker.name).filter(Boolean))).size}</Text><Text style={s.sumLbl}>Staff</Text></View></View>
+            {(() => { const totals={}; filtDaily.forEach(row=>(Array.isArray(row.worker_hours)?row.worker_hours:[]).forEach(worker=>{const name=worker.name||'Unassigned';totals[name]=(totals[name]||0)+Number(worker.hours||0);})); return <View style={s.reportCard}><Text style={[s.cardBranch,{marginTop:0,marginBottom:5}]}>PERSON-WISE TOTAL HOURS</Text>{Object.entries(totals).sort((a,b)=>b[1]-a[1]).map(([name,hours])=><View key={name} style={s.cardTop}><Text style={s.cardMeta}>{name}</Text><Text style={s.cardAmount}>{hours}h</Text></View>)}</View>; })()}
             <Text style={s.countTxt}>{filtDaily.length} daily hour records</Text>
             {filtDaily.length === 0 ? <View style={s.empty}><Text style={s.emptyTxt}>No hours for this filter</Text></View> : filtDaily.map((row,i) => <View key={row.id||i} style={s.reportCard}><View style={s.cardTop}><Text style={s.cardDate}>{fmtDate(row.date)}</Text><Text style={s.cardAmount}>{fmtNum(Number(row.working_hours||0))}h</Text></View><Text style={s.cardBranch}>{row.branch}</Text>{(Array.isArray(row.worker_hours)?row.worker_hours:[]).map((worker,index)=><Text key={index} style={s.cardMeta}>{worker.name}: {worker.hours}h</Text>)}</View>)}
           </>

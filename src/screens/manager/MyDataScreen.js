@@ -288,6 +288,8 @@ function ManagerMyDataContent({ deferHeavy = false }) {
   const [spec, setSpec] = useState([]);   // all SPEC orders
   const [drLast, setDrLast] = useState([]);
   const [allDr, setAllDr] = useState([]);
+  const [reportDr, setReportDr] = useState([]);
+  const [reportCf, setReportCf] = useState([]);
 
   /* edit modal */
   const [editModal, setEditModal] = useState(null);
@@ -334,6 +336,14 @@ function ManagerMyDataContent({ deferHeavy = false }) {
   }, [branch, from, to, lfrom, lto, histFrom, today, deferHeavy, activeRange.from, activeRange.to]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  useEffect(() => {
+    if (tab !== 'Report' || reportDr.length > 0) return;
+    let active=true;
+    Promise.all([fetchDailyReports(branch,'2020-01-01',today),fetchCashflowReports(branch,'2020-01-01',today)])
+      .then(([daily,cash])=>{if(active){setReportDr(daily||[]);setReportCf(cash||[]);}}).catch(()=>{});
+    return()=>{active=false;};
+  },[tab,branch,today,reportDr.length]);
 
   // Turystyczna has heavier historical records. Load those only when their
   // tab is opened so the normal dashboard can paint first without Android
@@ -434,8 +444,8 @@ function ManagerMyDataContent({ deferHeavy = false }) {
 
   function buildReport() {
     const { f, t } = resolveRange();
-    const filtDr = drAll.filter(r => r.date >= f && r.date <= t);
-    const filtCf = cfAll.filter(r => r.date >= f && r.date <= t);
+    const filtDr = (reportDr.length?reportDr:drAll).filter(r => r.date >= f && r.date <= t);
+    const filtCf = (reportCf.length?reportCf:cfAll).filter(r => r.date >= f && r.date <= t);
     const filtSpec = spec.filter(o => (o.date||'') >= f && (o.date||'') <= t);
 
     const lines = [];
@@ -484,6 +494,13 @@ function ManagerMyDataContent({ deferHeavy = false }) {
       methods.filter(m=>rPay[m.k]).forEach(m => {
         const pct = totalRev>0?Math.round(m.val/totalRev*100):0;
         lines.push(`${col(m.lbl,10)} ${rgt(fmtK(m.val),9)} PLN  (${pct}%)`);
+      });
+      lines.push('');
+      lines.push(`${col('DATE',9)}${rgt('CASH',9)}${rgt('CARD',9)}${rgt('ONLINE',9)}`);
+      lines.push(line('─', 36));
+      [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
+        const online = DELIVERY_KEYS.reduce((sum,key)=>sum+Number(r[key]||0),0);
+        lines.push(`${col(fmtDate(r.date),9)}${rgt(fmtK(r.cash||0),9)}${rgt(fmtK(r.card||0),9)}${rgt(fmtK(online),9)}`);
       });
     }
 
@@ -545,14 +562,18 @@ function ManagerMyDataContent({ deferHeavy = false }) {
       lines.push(`Total Hours   : ${totalHrs}h`);
       lines.push(`Revenue/Hour  : ${fmtK(revPerHr)} PLN`);
       lines.push(`Est. Labor    : ${fmtK(totalHrs*22)} PLN  (22 PLN/hr)`);
+      const people = {};
+      filtDr.forEach(r => (Array.isArray(r.worker_hours)?r.worker_hours:[]).forEach(w => { const name=String(w.name||'Unassigned'); people[name]=(people[name]||0)+Number(w.hours||0); }));
       lines.push('');
-      lines.push(`${col('DATE',9)}${rgt('HOURS',7)}${rgt('REVENUE',10)}${rgt('REV/HR',8)}`);
-      lines.push(line('─', 36));
+      lines.push('EMPLOYEE TOTALS');
+      Object.entries(people).sort((a,b)=>b[1]-a[1]).forEach(([name,hours]) => lines.push(`${col(name,22)} ${rgt(hours+'h',8)}`));
+      lines.push('');
+      lines.push(`${col('DATE',9)}${col('EMPLOYEE',18)}${rgt('HOURS',7)}`);
+      lines.push(line('─', 34));
       [...filtDr].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r => {
-        const h = r.working_hours||0;
-        const rv = r.total_revenue||r.revenue||0;
-        const rph = h>0?Math.round(rv/h):0;
-        lines.push(`${col(fmtDate(r.date),9)}${rgt(h+'h',7)}${rgt(fmtK(rv),10)}${rgt(fmtK(rph),8)}`);
+        const workers=Array.isArray(r.worker_hours)?r.worker_hours:[];
+        if (workers.length===0) lines.push(`${col(fmtDate(r.date),9)}${col('Unassigned',18)}${rgt((r.working_hours||0)+'h',7)}`);
+        workers.forEach((worker,index)=>lines.push(`${col(index===0?fmtDate(r.date):'',9)}${col(worker.name||'Unassigned',18)}${rgt(Number(worker.hours||0)+'h',7)}`));
       });
     }
 
@@ -578,8 +599,8 @@ function ManagerMyDataContent({ deferHeavy = false }) {
 
   function buildCSV() {
     const { f, t } = resolveRange();
-    const filtDr = [...drAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
-    const filtCf = [...cfAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const filtDr = [...(reportDr.length?reportDr:drAll).filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const filtCf = [...(reportCf.length?reportCf:cfAll).filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
     const drMap  = Object.fromEntries(filtDr.map(r => [r.date, r]));
     const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
     const line = arr => arr.map(q).join(',');
@@ -652,8 +673,8 @@ function ManagerMyDataContent({ deferHeavy = false }) {
 
   function buildPDFHtml() {
     const { f, t } = resolveRange();
-    const filtDr = [...drAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
-    const filtCf = [...cfAll.filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const filtDr = [...(reportDr.length?reportDr:drAll).filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
+    const filtCf = [...(reportCf.length?reportCf:cfAll).filter(r => r.date >= f && r.date <= t)].sort((a,b)=>a.date.localeCompare(b.date));
     const drMap  = Object.fromEntries(filtDr.map(r => [r.date, r]));
     const totalRev = filtDr.reduce((s,r)=>s+(r.total_revenue||r.revenue||0),0);
     const totalExp = filtCf.reduce((s,r)=>s+(r.total_expenses||r.total||0),0);
@@ -712,6 +733,11 @@ function ManagerMyDataContent({ deferHeavy = false }) {
         </table>`;
     }
 
+    if (rSecs.payments && filtDr.length > 0) {
+      const paymentRows = filtDr.map(r => `<tr><td>${fmtDate(r.date)}</td><td>${fmtK(Number(r.cash||0))} PLN</td><td>${fmtK(Number(r.card||0))} PLN</td><td>${fmtK(DELIVERY_KEYS.reduce((sum,key)=>sum+Number(r[key]||0),0))} PLN</td></tr>`).join('');
+      html += `<h2>💳 Payments by Day</h2><table><thead><tr><th>Date</th><th>Cash</th><th>Card</th><th>Online</th></tr></thead><tbody>${paymentRows}</tbody></table>`;
+    }
+
     /* ── Cash Flow table ── */
     if (rSecs.cashflow && filtCf.length > 0) {
       let tInc=0, tExp2=0;
@@ -743,15 +769,19 @@ function ManagerMyDataContent({ deferHeavy = false }) {
     /* ── Hours table ── */
     if (rSecs.hours && filtDr.length > 0) {
       let tH = 0;
+      const people = {};
       const dataRows = filtDr.map(r => {
-        const h = r.working_hours||0; tH+=h;
-        return `<tr><td>${fmtDate(r.date)}</td><td>${h}h</td></tr>`;
+        const workers=Array.isArray(r.worker_hours)?r.worker_hours:[];
+        if (workers.length===0) { const h=Number(r.working_hours||0); tH+=h; people.Unassigned=(people.Unassigned||0)+h; return `<tr><td>${fmtDate(r.date)}</td><td>Unassigned</td><td>${h}h</td></tr>`; }
+        return workers.map((worker,index)=>{ const h=Number(worker.hours||0); tH+=h; const name=worker.name||'Unassigned'; people[name]=(people[name]||0)+h; return `<tr><td>${index===0?fmtDate(r.date):''}</td><td>${name}</td><td>${h}h</td></tr>`; }).join('');
       }).join('');
+      const personRows=Object.entries(people).sort((a,b)=>b[1]-a[1]).map(([name,hours])=>`<tr><td>${name}</td><td>${hours}h</td></tr>`).join('');
       html += `<h2>⏱ Hours Report</h2>
+        <table><thead><tr><th>Employee</th><th>Total Hours</th></tr></thead><tbody>${personRows}<tr class="total-row"><td>TOTAL</td><td>${tH}h</td></tr></tbody></table>
+        <h2>Hours by Day</h2>
         <table>
-          <thead><tr><th>Date</th><th>Daily Hours</th></tr></thead>
+          <thead><tr><th>Date</th><th>Employee</th><th>Hours</th></tr></thead>
           <tbody>${dataRows}
-          <tr class="total-row"><td>TOTAL</td><td>${tH}h</td></tr>
           </tbody>
         </table>`;
     }
@@ -780,14 +810,11 @@ function ManagerMyDataContent({ deferHeavy = false }) {
     try {
       const html = buildPDFHtml();
       const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const { f, t } = resolveRange();
-      const destPath = FileSystem.cacheDirectory + `dostana_${branch}_${f}_${t}.pdf`.replace(/\s/g,'_');
-      await FileSystem.moveAsync({ from: uri, to: destPath });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(destPath, { mimeType: 'application/pdf', dialogTitle: 'Export PDF', UTI: 'com.adobe.pdf' });
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Export PDF', UTI: 'com.adobe.pdf' });
       } else {
-        await Print.printAsync({ uri: destPath });
+        await Print.printAsync({ uri });
       }
     } catch (e) { Alert.alert('PDF Export Failed', e.message); }
   }
@@ -805,6 +832,14 @@ function ManagerMyDataContent({ deferHeavy = false }) {
   const delivPct = rev > 0 ? Math.round(deliveryRev / rev * 100) : 0;
   const target = revLast > 0 ? Math.round(revLast * 1.05) : null;
   const targetPct = target && rev > 0 ? Math.min(100, Math.round(rev / target * 100)) : null;
+  const staffTotals = {};
+  dr.forEach(report => {
+    const workers = Array.isArray(report.worker_hours) ? report.worker_hours : [];
+    workers.forEach(worker => {
+      const name = String(worker?.name || 'Unassigned');
+      staffTotals[name] = (staffTotals[name] || 0) + Number(worker?.hours || 0);
+    });
+  });
 
   let chickenKg = 0, lambKg = 0, specCost = 0;
   spec.filter(o => o.date >= from && o.date <= to).forEach(o => {
@@ -865,7 +900,7 @@ function ManagerMyDataContent({ deferHeavy = false }) {
       </View>
 
       <InnerTabBar active={tab} onPress={setTab} />
-      <View style={{ backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 9 }}>
+      {tab !== 'Rank' && tab !== 'Report' ? <View style={{ backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 9 }}>
         <View style={{ flexDirection: 'row', gap: 7 }}>
           {[['this','This Month'],['last','Last Month'],['custom','Custom']].map(([key,label]) => (
             <TouchableOpacity key={key} onPress={() => setViewPeriod(key)} style={{ flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: 'center', backgroundColor: viewPeriod === key ? COLORS.primary : '#F1F3F4' }}>
@@ -874,7 +909,7 @@ function ManagerMyDataContent({ deferHeavy = false }) {
           ))}
         </View>
         {viewPeriod === 'custom' ? <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}><TextInput style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 8 }} value={viewFrom} onChangeText={setViewFrom} placeholder="YYYY-MM-DD" /><TextInput style={{ flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 8 }} value={viewTo} onChangeText={setViewTo} placeholder="YYYY-MM-DD" /></View> : null}
-      </View>
+      </View> : null}
 
       <ScrollView
         contentContainerStyle={s.content}
@@ -1266,7 +1301,19 @@ function ManagerMyDataContent({ deferHeavy = false }) {
             </View>
           </SectionCard>
 
-          <SectionCard title="📅 Daily Hours This Month" color="#1565C0">
+          <SectionCard title="👥 Hours by Employee" color="#1B5E20">
+            {Object.keys(staffTotals).length === 0
+              ? <Text style={s.emptyTxt}>No employee hour entries for this period</Text>
+              : Object.entries(staffTotals).sort((a,b)=>b[1]-a[1]).map(([name,hours]) => (
+                <View key={name} style={s.staffRow}>
+                  <Text style={[s.staffDate,{flex:1,width:'auto'}]}>{name}</Text>
+                  <Text style={s.staffHrs}>{hours}h</Text>
+                  <Text style={[s.staffRev,{width:70}]}>{fmtK(hours*22)} PLN</Text>
+                </View>
+              ))}
+          </SectionCard>
+
+          <SectionCard title="📅 Daily Hours" color="#1565C0">
             {dr.length === 0
               ? <Text style={s.emptyTxt}>No reports yet this month</Text>
               : [...dr].sort((a, b) => b.date.localeCompare(a.date)).map(r => {
@@ -1428,9 +1475,7 @@ function ManagerMyDataContent({ deferHeavy = false }) {
 export default function ManagerMyDataScreen() {
   const { user } = useAuth();
   const branch = user?.branch || '';
-  const deferHeavy = branch.trim().toLocaleLowerCase('pl-PL') === 'turystyczna';
-  if (deferHeavy) return <SafeMyDataFallback branch={branch} compactOnly />;
-  return <MyDataErrorBoundary branch={branch} deferHeavy={deferHeavy} />;
+  return <MyDataErrorBoundary branch={branch} deferHeavy={false} />;
 }
 
 /* ─── styles ───────────────────────────────────────────────── */
