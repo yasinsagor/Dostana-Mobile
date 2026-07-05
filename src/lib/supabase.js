@@ -231,7 +231,7 @@ export async function deleteSpecOrder(id) {
 
 // SPEC products catalogue
 export async function fetchSpecProducts() {
-  const { data, error } = await supabase.from('spec_products').select('*').order('name');
+  const { data, error } = await supabase.from('spec_products').select('*').order('sort_order').order('name');
   if (error) throw error;
   return data;
 }

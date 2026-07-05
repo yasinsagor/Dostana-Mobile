@@ -236,7 +236,7 @@ export default function ManagerHomeScreen() {
           ) : (
             <View style={s.specPending}>
               <Text style={s.specPendingTxt}>❌ SPEC order not yet submitted today</Text>
-              <TouchableOpacity style={s.specBtn} onPress={() => navigation.navigate('SPEC Order')} activeOpacity={0.8}>
+              <TouchableOpacity style={s.specBtn} onPress={() => navigation.navigate('Submit', { tab: 'spec' })} activeOpacity={0.8}>
                 <Text style={s.specBtnTxt}>Submit SPEC Now →</Text>
               </TouchableOpacity>
             </View>
@@ -361,7 +361,7 @@ export default function ManagerHomeScreen() {
           <View style={{flexDirection:'row',flexWrap:'wrap',marginTop:4}}>
             <QBtn icon="📝" label="Daily Report"  onPress={()=>navigation.navigate('Submit')}  color={COLORS.primary}/>
             <QBtn icon="💸" label="Cash Flow"     onPress={()=>navigation.navigate('Submit')}     color="#1565C0"/>
-            <QBtn icon="📦" label="SPEC Order"    onPress={()=>navigation.navigate('SPEC Order')}    color="#6A1B9A"/>
+            <QBtn icon="📦" label="SPEC Order"    onPress={()=>navigation.navigate('Submit', { tab: 'spec' })} color="#6A1B9A"/>
             <QBtn icon="🗂️" label="History"       onPress={()=>navigation.navigate('History')}       color="#E65100"/>
           </View>
         </Card>

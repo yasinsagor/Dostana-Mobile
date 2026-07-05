@@ -16,6 +16,20 @@ function daysAgoStr(n) { const d=new Date(); d.setDate(d.getDate()-n); return d.
 function fmtK(n) { if (!n) return '0'; return Math.abs(n)>=1000 ? (n/1000).toFixed(1)+'k' : String(Math.round(n)); }
 function n(v) { return parseFloat(v) || 0; }
 
+function getUnitOptions(product) {
+  let options = product?.unit_options;
+  if (typeof options === 'string') { try { options = JSON.parse(options); } catch { options = []; } }
+  if (!Array.isArray(options)) options = [];
+  const normalized = options.map(option => typeof option === 'string'
+    ? { unit: option, label: option, multiplier: 1 }
+    : { unit: option.unit || option.label, label: option.label || option.unit, multiplier: Number(option.multiplier || 1) }
+  ).filter(option => option.unit);
+  if (product?.unit && !normalized.some(option => option.unit === product.unit)) {
+    normalized.unshift({ unit: product.unit, label: product.unit, multiplier: 1 });
+  }
+  return normalized.length ? normalized : [{ unit: product?.unit || 'szt', label: product?.unit || 'szt', multiplier: 1 }];
+}
+
 /* fallback price per unit if price not in DB */
 function fallbackPrice(p) {
   if (!p) return 10;
@@ -171,12 +185,14 @@ const mr = StyleSheet.create({
 });
 
 /* ─── product row (non-meat) ──────────────────────────────── */
-function ProductRow({ product, qty, onChange, lastQty, isMeat }) {
+function ProductRow({ product, qty, onChange, lastQty, isMeat, selectedUnit, onUnitChange }) {
   const qtyN = n(qty);
   const lastN = n(lastQty);
   const diff  = lastN > 0 ? qtyN - lastN : null;
   const price = product.price || fallbackPrice(product);
-  const lineCost = qtyN * price;
+  const unitOptions = getUnitOptions(product);
+  const selectedOption = unitOptions.find(option => option.unit === selectedUnit) || unitOptions[0];
+  const lineCost = qtyN * price * selectedOption.multiplier;
 
   const adj = (delta) => {
     const next = Math.max(0, qtyN + delta);
@@ -194,8 +210,12 @@ function ProductRow({ product, qty, onChange, lastQty, isMeat }) {
             </Text>
           )}
         </View>
-        <View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:2}}>
-          <Text style={pr.unit}>{product.unit}</Text>
+        <View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:4,flexWrap:'wrap'}}>
+          {unitOptions.length > 1 ? unitOptions.map(option => (
+            <TouchableOpacity key={option.unit} style={[pr.unitChip, selectedOption.unit === option.unit && pr.unitChipActive]} onPress={() => onUnitChange(option.unit)}>
+              <Text style={[pr.unitChipText, selectedOption.unit === option.unit && pr.unitChipTextActive]}>{option.label}</Text>
+            </TouchableOpacity>
+          )) : <Text style={pr.unit}>{selectedOption.label}</Text>}
           {lineCost>0 && <Text style={pr.cost}>~{fmtK(lineCost)} PLN</Text>}
         </View>
       </View>
@@ -234,6 +254,10 @@ const pr = StyleSheet.create({
   rowActive:    { backgroundColor:'#F0FFF4' },
   name:         { fontSize:13, fontWeight:'700', color:'#222' },
   unit:         { fontSize:11, color:'#aaa' },
+  unitChip:     { paddingHorizontal:8, paddingVertical:3, borderRadius:10, borderWidth:1, borderColor:'#D5D5D5', backgroundColor:'#fff' },
+  unitChipActive:{ backgroundColor:'#E8F5E9', borderColor:COLORS.primary },
+  unitChipText: { fontSize:10, color:'#777', fontWeight:'700' },
+  unitChipTextActive:{ color:COLORS.primary, fontWeight:'900' },
   cost:         { fontSize:11, color:COLORS.primary, fontWeight:'700' },
   diff:         { fontSize:11, fontWeight:'800' },
   controls:    { alignItems:'flex-end', gap:4 },
@@ -259,6 +283,7 @@ export default function ManagerSpecScreen() {
   const [products,  setProducts]  = useState([]);
   const [productOrder, setProductOrder] = useState([]); // array of product IDs in custom order
   const [quantities,setQty]       = useState({});
+  const [selectedUnits, setSelectedUnits] = useState({});
   const [lastOrder, setLastOrder] = useState(null); // { items: [...] }
   const [activeTab, setActiveTab] = useState('All');
   const [search,    setSearch]    = useState('');
@@ -280,9 +305,10 @@ export default function ManagerSpecScreen() {
         const prods = await fetchSpecProducts();
         const finalProds = prods && prods.length > 0 ? prods : FALLBACK_PRODUCTS;
         setProducts(finalProds);
+        setSelectedUnits(Object.fromEntries(finalProds.map(product => [product.id, getUnitOptions(product)[0].unit])));
         // load saved order
         try {
-          const savedOrder = await AsyncStorage.getItem(`spec_order_${branch}`);
+          const savedOrder = await AsyncStorage.getItem(`spec_order_v2_${branch}`);
           if (savedOrder) setProductOrder(JSON.parse(savedOrder));
           else setProductOrder(finalProds.map(p => p.id));
         } catch { setProductOrder(finalProds.map(p => p.id)); }
@@ -337,6 +363,7 @@ export default function ManagerSpecScreen() {
             if (d.quantities) setQty(d.quantities);
             if (d.note)       setNote(d.note);
             if (d.kgQtys)     setKgQtys(d.kgQtys);
+            if (d.selectedUnits) setSelectedUnits(current => ({ ...current, ...d.selectedUnits }));
           }
         } catch {}
       } catch(e) { console.error(e); }
@@ -349,10 +376,10 @@ export default function ManagerSpecScreen() {
   const triggerSave = useCallback(() => {
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
-      try { await AsyncStorage.setItem(draftKey, JSON.stringify({ quantities, note, kgQtys })); } catch {}
+      try { await AsyncStorage.setItem(draftKey, JSON.stringify({ quantities, note, kgQtys, selectedUnits })); } catch {}
     }, 600);
-  }, [quantities, note, draftKey]);
-  useEffect(() => { if (!loading) triggerSave(); }, [quantities, note, loading]);
+  }, [quantities, note, kgQtys, selectedUnits, draftKey]);
+  useEffect(() => { if (!loading) triggerSave(); }, [quantities, note, kgQtys, selectedUnits, loading, triggerSave]);
 
   /* ── load last order ── */
   const applyLastOrder = () => {
@@ -361,7 +388,12 @@ export default function ManagerSpecScreen() {
     const newQty = {};
     lastOrder.items.forEach(it => {
       const prod = products.find(p => p.name === it.name);
-      if (prod) newQty[prod.id] = String(it.qty);
+      if (prod) {
+        newQty[prod.id] = String(it.qty);
+        if (it.unit && getUnitOptions(prod).some(option => option.unit === it.unit)) {
+          setSelectedUnits(current => ({ ...current, [prod.id]: it.unit }));
+        }
+      }
     });
     setQty(newQty);
     Alert.alert('Last Order Loaded', `${lastOrder.date} — quantities pre-filled. Adjust as needed.`);
@@ -402,7 +434,7 @@ export default function ManagerSpecScreen() {
     if (idxA === -1 || idxB === -1) return;
     [ids[idxA], ids[idxB]] = [ids[idxB], ids[idxA]];
     setProductOrder(ids);
-    AsyncStorage.setItem(`spec_order_${branch}`, JSON.stringify(ids)).catch(() => {});
+    AsyncStorage.setItem(`spec_order_v2_${branch}`, JSON.stringify(ids)).catch(() => {});
   }
 
   const isMeatSpecialProd = p => p.name==='Kurczak'||p.name==='Baranina';
@@ -413,7 +445,8 @@ export default function ManagerSpecScreen() {
 
   const estimatedCost = ordered.reduce((s,p) => {
     if (isMeatSpecialProd(p)) return s + meatTotalKg(p)*(p.price||fallbackPrice(p));
-    return s + n(quantities[p.id])*(p.price||fallbackPrice(p));
+    const option = getUnitOptions(p).find(item => item.unit === selectedUnits[p.id]) || getUnitOptions(p)[0];
+    return s + n(quantities[p.id])*(p.price||fallbackPrice(p))*option.multiplier;
   },0);
 
   const specPct = monthRev > 0 ? Math.round(monthSpec/monthRev*100) : null;
@@ -470,11 +503,13 @@ export default function ManagerSpecScreen() {
             }
           });
         } else {
+          const option = getUnitOptions(p).find(item => item.unit === selectedUnits[p.id]) || getUnitOptions(p)[0];
           items.push({
             id:    p.id,
             name:  p.name,
             qty:   n(quantities[p.id]),
-            unit:  p.unit || '',
+            unit:  option.unit,
+            unit_multiplier: option.multiplier,
             cat:   p.category || p.cat || 'Other',
             price: p.price || fallbackPrice(p),
           });
@@ -639,6 +674,8 @@ export default function ManagerSpecScreen() {
                       onChange={v => setQty(q=>({...q,[p.id]:v}))}
                       lastQty={lastItem?.qty}
                       isMeat={isMeat}
+                      selectedUnit={selectedUnits[p.id] || getUnitOptions(p)[0].unit}
+                      onUnitChange={unit => setSelectedUnits(current => ({ ...current, [p.id]: unit }))}
                     />
                   </View>
                   {moveButtons}
@@ -665,7 +702,7 @@ export default function ManagerSpecScreen() {
               return (
                 <View key={p.id} style={s.summaryRow}>
                   <Text style={s.summaryName}>{p.name}</Text>
-                  <Text style={s.summaryQty}>{quantities[p.id]} {p.unit}</Text>
+                  <Text style={s.summaryQty}>{quantities[p.id]} {(getUnitOptions(p).find(option => option.unit === selectedUnits[p.id]) || getUnitOptions(p)[0]).label}</Text>
                 </View>
               );
             })}

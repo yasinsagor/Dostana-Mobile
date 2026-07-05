@@ -526,7 +526,7 @@ export default function ManagerSubmitScreen() {
             </View>
           ))}
           {!specDone && isToday && (
-            <TouchableOpacity style={s.specReminder} onPress={()=>navigation.navigate('SPEC Order')} activeOpacity={0.8}>
+            <TouchableOpacity style={s.specReminder} onPress={()=>navigation.navigate('Submit', { tab: 'spec' })} activeOpacity={0.8}>
               <Text style={s.specReminderTxt}>📦 SPEC order not submitted yet — tap to submit now →</Text>
             </TouchableOpacity>
           )}
@@ -702,7 +702,7 @@ export default function ManagerSubmitScreen() {
               ) : (
                 <View>
                   <View style={s.specPending}><Text style={s.specPendingTxt}>❌ SPEC order not yet submitted today</Text></View>
-                  <TouchableOpacity style={s.specBtn} onPress={()=>navigation.navigate('SPEC Order')} activeOpacity={0.8}>
+                  <TouchableOpacity style={s.specBtn} onPress={()=>navigation.navigate('Submit', { tab: 'spec' })} activeOpacity={0.8}>
                     <Text style={s.specBtnTxt}>Go to SPEC Order →</Text>
                   </TouchableOpacity>
                 </View>

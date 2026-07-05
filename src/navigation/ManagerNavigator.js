@@ -4,7 +4,7 @@ import { Text } from 'react-native';
 import { COLORS } from '../constants';
 
 import ManagerHomeScreen     from '../screens/manager/HomeScreen';
-import ManagerSubmitScreen   from '../screens/manager/SubmitScreen';
+import ManagerSubmitHubScreen from '../screens/manager/SubmitHubScreen';
 import ManagerSpecScreen     from '../screens/manager/SpecScreen';
 import ManagerMyDataScreen   from '../screens/manager/MyDataScreen';
 import ManagerScheduleScreen from '../screens/manager/ScheduleScreen';
@@ -15,8 +15,7 @@ const Tab = createBottomTabNavigator();
 
 const tabs = [
   { name: 'Home',       component: ManagerHomeScreen,     icon: '🏠' },
-  { name: 'Submit',     component: ManagerSubmitScreen,   icon: '📤' },
-  { name: 'SPEC Order', component: ManagerSpecScreen,     icon: '📦' },
+  { name: 'Submit',     component: ManagerSubmitHubScreen, icon: '📤' },
   { name: 'My Data',    component: ManagerMyDataScreen,   icon: '📊' },
   { name: 'HACCP',      component: ManagerHaccpScreen,    icon: '🛡️' },
   { name: 'Schedule',   component: ManagerScheduleScreen, icon: '📅' },
@@ -41,6 +40,11 @@ export default function ManagerNavigator() {
       {tabs.map(t => (
         <Tab.Screen key={t.name} name={t.name} component={t.component} />
       ))}
+      <Tab.Screen
+        name="SPEC Order"
+        component={ManagerSpecScreen}
+        options={{ tabBarButton: () => null }}
+      />
     </Tab.Navigator>
   );
 }
