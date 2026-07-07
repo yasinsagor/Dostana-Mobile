@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase, fetchBranchWorkers, saveBranchWorkers } from '../../lib/supabase';
-import { COLORS, BRANCHES } from '../../constants';
+import { COLORS, BRANCHES, setRuntimeBranches } from '../../constants';
 
 /* ─── helpers ──────────────────────────────────────────────── */
 function todayStr() { return new Date().toISOString().slice(0,10); }
@@ -177,6 +177,104 @@ export default function OwnerSettingsScreen() {
   const [newWorkerName,  setNewWorkerName]   = useState('');
   const [workerSaving,   setWorkerSaving]    = useState(false);
 
+  /* owner branch access management */
+  const [branchAdminList, setBranchAdminList] = useState(BRANCHES.map(b => ({ ...b, active: true })));
+  const [branchAdminLoading, setBranchAdminLoading] = useState(false);
+  const [branchAdminSaving, setBranchAdminSaving] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [newBranchPin, setNewBranchPin] = useState('');
+  const [pinBranch, setPinBranch] = useState(BRANCHES[0]?.name || '');
+  const [pinValue, setPinValue] = useState('');
+
+  const refreshBranchAdmin = useCallback(async () => {
+    setBranchAdminLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('branch_settings')
+        .select('branch,pin,active')
+        .order('branch');
+      if (error) throw error;
+      const rows = (data || []).map(item => ({
+        name: item.branch,
+        pin: item.pin || '',
+        active: item.active !== false,
+      }));
+      if (rows.length) {
+        setBranchAdminList(rows);
+        setRuntimeBranches(rows.filter(item => item.active));
+        if (!rows.some(item => item.name === pinBranch)) setPinBranch(rows[0].name);
+      }
+    } catch (e) {
+      Alert.alert('Branch access error', e.message || 'Could not load Android branch settings.');
+    }
+    setBranchAdminLoading(false);
+  }, [pinBranch]);
+
+  useEffect(() => {
+    refreshBranchAdmin();
+  }, [refreshBranchAdmin]);
+
+  const validPin = (pin) => /^\d{4,8}$/.test(String(pin || '').trim());
+
+  const addBranchAccess = async () => {
+    const name = newBranchName.trim();
+    const pin = newBranchPin.trim();
+    if (name.length < 2) return Alert.alert('Branch name required', 'Enter the new branch/location name.');
+    if (!validPin(pin)) return Alert.alert('Invalid PIN', 'Manager PIN must be 4–8 digits.');
+    setBranchAdminSaving(true);
+    try {
+      const { error } = await supabase
+        .from('branch_settings')
+        .upsert({ branch: name, pin, active: true }, { onConflict: 'branch' });
+      if (error) throw error;
+      setNewBranchName('');
+      setNewBranchPin('');
+      await refreshBranchAdmin();
+      Alert.alert('Branch added', `${name} can now log in from the Android app with PIN ${pin}.`);
+    } catch (e) {
+      Alert.alert('Could not add branch', e.message || 'Please try again.');
+    }
+    setBranchAdminSaving(false);
+  };
+
+  const resetBranchPin = async () => {
+    const pin = pinValue.trim();
+    if (!pinBranch) return Alert.alert('Choose branch', 'Select a branch first.');
+    if (!validPin(pin)) return Alert.alert('Invalid PIN', 'Manager PIN must be 4–8 digits.');
+    setBranchAdminSaving(true);
+    try {
+      const { error } = await supabase
+        .from('branch_settings')
+        .update({ pin })
+        .eq('branch', pinBranch);
+      if (error) throw error;
+      setPinValue('');
+      await refreshBranchAdmin();
+      Alert.alert('PIN updated', `${pinBranch} manager PIN is now ${pin}.`);
+    } catch (e) {
+      Alert.alert('Could not reset PIN', e.message || 'Please try again.');
+    }
+    setBranchAdminSaving(false);
+  };
+
+  const setBranchActive = (branch, active) => {
+    Alert.alert(active ? 'Activate branch' : 'Deactivate branch',
+      `${active ? 'Allow' : 'Block'} Android login for ${branch}?`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: active ? 'Activate' : 'Deactivate', style: active ? 'default' : 'destructive', onPress: async () => {
+          setBranchAdminSaving(true);
+          try {
+            const { error } = await supabase.from('branch_settings').update({ active }).eq('branch', branch);
+            if (error) throw error;
+            await refreshBranchAdmin();
+          } catch (e) {
+            Alert.alert('Could not update branch', e.message || 'Please try again.');
+          }
+          setBranchAdminSaving(false);
+        }},
+      ]);
+  };
+
   const loadWorkers = useCallback(async (branch) => {
     setWorkerLoading(true);
     try {
@@ -277,24 +375,35 @@ export default function OwnerSettingsScreen() {
           color={COLORS.primary} open={open.branches} onPress={()=>tog('branches')}/>
         {open.branches&&(
           <Body>
-            <ActBtn icon="➕" label="Add New Branch" sub="Register a new Dostana location"
-              color={COLORS.primary} bg="#E8F5E9" onPress={()=>soon('Add Branch')}/>
-            <ActBtn icon="✏️" label="Edit Branch Details" sub="Name, address, opening hours"
-              color={COLORS.primary} bg="#E8F5E9" onPress={()=>soon('Edit Branch')}/>
-            <ActBtn icon="🚫" label="Disable / Deactivate Branch" sub="Temporarily remove from reports"
-              color="#D32F2F" bg="#FFEBEE" onPress={()=>soon('Disable Branch')}/>
+            <Text style={s.permNote}>Live owner controls: these write to the mobile database, so new branches and PIN resets are available in Android login.</Text>
+            <Text style={s.subheading}>Add Android Branch Access</Text>
+            <View style={s.adminBox}>
+              <TextInput style={s.adminInput} value={newBranchName} onChangeText={setNewBranchName} placeholder="Branch/location name" placeholderTextColor="#bbb"/>
+              <TextInput style={s.adminInput} value={newBranchPin} onChangeText={setNewBranchPin} placeholder="Manager PIN, e.g. 1012" placeholderTextColor="#bbb" keyboardType="number-pad" maxLength={8}/>
+              <TouchableOpacity style={[s.adminPrimaryBtn, branchAdminSaving && {opacity:0.65}]} disabled={branchAdminSaving} onPress={addBranchAccess}>
+                {branchAdminSaving ? <ActivityIndicator size="small" color="#fff"/> : <Text style={s.adminPrimaryTxt}>Add Branch Access</Text>}
+              </TouchableOpacity>
+            </View>
             <View style={s.divider}/>
-            <Text style={s.subheading}>All Branches</Text>
-            {BRANCHES.map((b,i)=>(
-              <TouchableOpacity key={b.name} style={s.branchRow} onPress={()=>soon(`Edit ${b.name}`)} activeOpacity={0.7}>
-                <View style={[s.dot,{backgroundColor:COLORS.primary}]}/>
+            <View style={s.rowBetween}>
+              <Text style={s.subheading}>Live Android Branches</Text>
+              <TouchableOpacity onPress={refreshBranchAdmin} disabled={branchAdminLoading}>
+                <Text style={s.refreshTxt}>{branchAdminLoading ? 'Loading…' : 'Refresh'}</Text>
+              </TouchableOpacity>
+            </View>
+            {branchAdminLoading ? <ActivityIndicator color={COLORS.primary} style={{marginVertical:16}}/> : branchAdminList.map(b=>(
+              <View key={b.name} style={s.branchRow}>
+                <View style={[s.dot,{backgroundColor:b.active ? COLORS.primary : '#bbb'}]}/>
                 <View style={{flex:1}}>
                   <Text style={s.branchName}>{b.name}</Text>
-                  <Text style={s.branchSub}>PIN: {b.pin} · Active</Text>
+                  <Text style={s.branchSub}>PIN: {b.pin || 'not set'} · {b.active ? 'Active' : 'Inactive'}</Text>
                 </View>
-                <Text style={s.editChip}>Edit ›</Text>
-              </TouchableOpacity>
+                <TouchableOpacity style={[s.smallStatusBtn, !b.active && {backgroundColor:'#E8F5E9'}]} disabled={branchAdminSaving} onPress={()=>setBranchActive(b.name, !b.active)}>
+                  <Text style={[s.smallStatusTxt, !b.active && {color:COLORS.primary}]}>{b.active ? 'Deactivate' : 'Activate'}</Text>
+                </TouchableOpacity>
+              </View>
             ))}
+            <Text style={s.infoNoteTxt}>Tip: branch address/opening-hour editing stays in the web portal. Android owner settings controls login access only.</Text>
           </Body>
         )}
 
@@ -303,8 +412,26 @@ export default function OwnerSettingsScreen() {
           color="#E65100" open={open.managers} onPress={()=>tog('managers')}/>
         {open.managers&&(
           <Body>
-            <Text style={s.permNote}>Tap permissions to toggle access for each branch manager.</Text>
-            {BRANCHES.map(b=>(
+            <Text style={s.permNote}>Reset Android manager PINs here. Website manager login is handled through portal invitations and passwords.</Text>
+            <Text style={s.subheading}>Reset Manager PIN</Text>
+            <View style={s.adminBox}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{flexDirection:'row',gap:6,paddingBottom:4}}>
+                  {branchAdminList.map(b=>(
+                    <TouchableOpacity key={b.name} style={[s.wBranchChip,pinBranch===b.name&&s.wBranchChipActive]} onPress={()=>setPinBranch(b.name)}>
+                      <Text style={[s.wBranchChipTxt,pinBranch===b.name&&{color:'#fff'}]}>{b.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+              <TextInput style={s.adminInput} value={pinValue} onChangeText={setPinValue} placeholder={`New PIN for ${pinBranch || 'branch'}`} placeholderTextColor="#bbb" keyboardType="number-pad" maxLength={8}/>
+              <TouchableOpacity style={[s.adminPrimaryBtn,{backgroundColor:'#E65100'},branchAdminSaving&&{opacity:0.65}]} disabled={branchAdminSaving} onPress={resetBranchPin}>
+                {branchAdminSaving ? <ActivityIndicator size="small" color="#fff"/> : <Text style={s.adminPrimaryTxt}>Save New PIN</Text>}
+              </TouchableOpacity>
+            </View>
+            <View style={s.divider}/>
+            <Text style={s.permNote}>Permission chips below are local planning controls only. PIN changes above are saved to the mobile database.</Text>
+            {branchAdminList.map(b=>(
               <View key={b.name} style={s.mgrCard}>
                 <View style={{flexDirection:'row',alignItems:'center',marginBottom:8}}>
                   <View style={[s.dot,{backgroundColor:COLORS.primary}]}/>
@@ -312,7 +439,7 @@ export default function OwnerSettingsScreen() {
                     <Text style={s.mgrName}>{b.name}</Text>
                     <Text style={s.mgrSub}>PIN: {b.pin}</Text>
                   </View>
-                  <TouchableOpacity style={s.pinResetBtn} onPress={()=>soon(`Reset PIN ${b.name}`)}>
+                  <TouchableOpacity style={s.pinResetBtn} onPress={()=>{setPinBranch(b.name);setPinValue('');}}>
                     <Text style={s.pinResetTxt}>Reset PIN</Text>
                   </TouchableOpacity>
                 </View>
@@ -585,6 +712,14 @@ const s = StyleSheet.create({
   pinResetTxt:  { fontSize:11, fontWeight:'700', color:'#E65100' },
   permLabel:    { fontSize:11, fontWeight:'700', color:'#aaa', textTransform:'uppercase', marginTop:4 },
   permNote:     { fontSize:12, color:'#888', lineHeight:18, backgroundColor:'#F5F5F5', borderRadius:8, padding:10, marginBottom:10 },
+  adminBox:     { backgroundColor:'#FAFAFA', borderWidth:1, borderColor:'#E8ECEF', borderRadius:12, padding:10, gap:8, marginBottom:4 },
+  adminInput:   { borderWidth:1.5, borderColor:'#E0E0E0', borderRadius:10, paddingHorizontal:12, paddingVertical:10, fontSize:14, color:'#111', backgroundColor:'#fff' },
+  adminPrimaryBtn:{ backgroundColor:COLORS.primary, borderRadius:10, paddingVertical:12, alignItems:'center', justifyContent:'center' },
+  adminPrimaryTxt:{ color:'#fff', fontWeight:'800', fontSize:13 },
+  rowBetween:   { flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:8 },
+  refreshTxt:   { color:COLORS.primary, fontWeight:'800', fontSize:12 },
+  smallStatusBtn:{ backgroundColor:'#FFEBEE', borderRadius:8, paddingHorizontal:10, paddingVertical:6 },
+  smallStatusTxt:{ color:'#D32F2F', fontSize:11, fontWeight:'800' },
   catLabel:     { fontSize:12, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginTop:10, marginBottom:4 },
   productRow:   { flexDirection:'row', alignItems:'center', paddingVertical:8, borderBottomWidth:1, borderBottomColor:'#F8F8F8', gap:8 },
   productName:  { flex:1, fontSize:13, fontWeight:'700', color:'#222' },
