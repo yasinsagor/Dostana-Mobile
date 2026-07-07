@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase, fetchAllDailyReports } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
-import { COLORS, BRANCHES } from '../../constants';
+import { COLORS, BRANCHES, setRuntimeBranches } from '../../constants';
 
 const CHART_H = 80;
 
@@ -35,18 +35,27 @@ export default function OwnerDashboardScreen() {
   const [todayCashflow, setTodayCashflow] = useState([]);
   const [todaySpec, setTodaySpec] = useState([]);
   const [trendDaily, setTrendDaily] = useState([]);
+  const [dashboardBranches, setDashboardBranches] = useState(BRANCHES);
   const [showBranches, setShowBranches] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const t = todayStr();
       const wk = daysAgoStr(6);
-      const [daily, cfRes, spRes, trend] = await Promise.all([
+      const [daily, cfRes, spRes, trend, branchRes] = await Promise.all([
         fetchAllDailyReports(t, t),
         supabase.from('cashflow_reports').select('*').eq('date', t),
         supabase.from('spec_orders').select('*').eq('date', t),
         fetchAllDailyReports(wk, t),
+        supabase.from('branch_settings').select('branch,pin,active').eq('active', true).order('branch'),
       ]);
+      const liveBranches = (branchRes.data || [])
+        .map(item => ({ name: item.branch, pin: item.pin || '' }))
+        .filter(item => item.name);
+      if (!branchRes.error && liveBranches.length) {
+        setDashboardBranches(liveBranches);
+        setRuntimeBranches(liveBranches);
+      }
       setTodayDaily(daily || []);
       setTodayCashflow(cfRes.data || []);
       setTodaySpec(spRes.data || []);
@@ -61,13 +70,14 @@ export default function OwnerDashboardScreen() {
   const submittedSet = new Set(todayDaily.map(r => r.branch));
   const cashflowSet = new Set(todayCashflow.map(r => r.branch));
   const specSet = new Set(todaySpec.map(r => r.branch));
+  const activeSubmittedCount = dashboardBranches.filter(b => submittedSet.has(b.name)).length;
 
   const todayRevenue = todayDaily.reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0);
   const todayExpenses = todayCashflow.reduce((s, r) => s + (r.total_expenses || r.total || 0), 0);
   const todayCash = todayDaily.reduce((s, r) => s + (r.cash_revenue || r.cash || 0), 0);
 
-  const missingDaily = BRANCHES.filter(b => !submittedSet.has(b.name));
-  const missingCF = BRANCHES.filter(b => submittedSet.has(b.name) && !cashflowSet.has(b.name));
+  const missingDaily = dashboardBranches.filter(b => !submittedSet.has(b.name));
+  const missingCF = dashboardBranches.filter(b => submittedSet.has(b.name) && !cashflowSet.has(b.name));
   const negBranches = todayDaily.filter(r => (r.net_profit || 0) < 0);
 
   const alerts = [];
@@ -87,7 +97,7 @@ export default function OwnerDashboardScreen() {
   });
   const specEntries = Object.entries(specAgg).sort((a, b) => b[1] - a[1]);
 
-  const branchStatus = BRANCHES.map(b => {
+  const branchStatus = dashboardBranches.map(b => {
     const dr = todayDaily.find(r => r.branch === b.name);
     return { name: b.name, submitted: !!dr, revenue: dr ? (dr.total_revenue || dr.revenue || 0) : 0, profit: dr ? (dr.net_profit || 0) : 0, hours: dr ? (dr.working_hours || 0) : 0, specDone: specSet.has(b.name) };
   }).sort((a, b) => b.revenue - a.revenue);
@@ -137,7 +147,7 @@ export default function OwnerDashboardScreen() {
           <View style={s.metCard}><Text style={s.metLabel}>REVENUE</Text><Text style={[s.metVal, { color: COLORS.primary }]}>PLN {fmtK(todayRevenue)}</Text></View>
           <View style={s.metCard}><Text style={s.metLabel}>EXPENSES</Text><Text style={[s.metVal, { color: COLORS.danger }]}>PLN {fmtK(todayExpenses)}</Text></View>
           <View style={s.metCard}><Text style={s.metLabel}>CASH</Text><Text style={[s.metVal, { color: '#1565C0' }]}>PLN {fmtK(todayCash)}</Text></View>
-          <View style={s.metCard}><Text style={s.metLabel}>SUBMITTED</Text><Text style={[s.metVal, { color: COLORS.text }]}>{submittedSet.size}/{BRANCHES.length}</Text></View>
+          <View style={s.metCard}><Text style={s.metLabel}>SUBMITTED</Text><Text style={[s.metVal, { color: COLORS.text }]}>{activeSubmittedCount}/{dashboardBranches.length}</Text></View>
         </View>
 
         {/* 3. TODAY SPEC */}
@@ -164,7 +174,7 @@ export default function OwnerDashboardScreen() {
         <TouchableOpacity style={s.secTitleRow} onPress={() => setShowBranches(v => !v)} activeOpacity={0.7}>
           <Text style={s.secTitle}>🏆 Branch Status</Text>
           <View style={s.secChevronWrap}>
-            <Text style={s.secBadge}>{submittedSet.size}/{BRANCHES.length}</Text>
+            <Text style={s.secBadge}>{activeSubmittedCount}/{dashboardBranches.length}</Text>
             <Text style={s.secChevron}>{showBranches ? '▲' : '▼'}</Text>
           </View>
         </TouchableOpacity>
