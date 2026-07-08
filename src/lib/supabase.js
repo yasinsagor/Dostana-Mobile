@@ -85,6 +85,68 @@ export async function insertHaccpEntry(entry) {
   if (error) throw error;
 }
 
+export async function fetchHaccpEquipment(branch) {
+  if (!branch) return [];
+  const { data, error } = await supabase
+    .from('haccp_equipment')
+    .select('*')
+    .eq('branch', branch)
+    .eq('active', true)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function saveHaccpEquipment(item) {
+  const payload = {
+    branch: item.branch,
+    register_type: item.register_type,
+    equipment_group: item.equipment_group,
+    name: item.name,
+    minimum_limit: item.minimum_limit ?? null,
+    maximum_limit: item.maximum_limit ?? null,
+    unit: item.unit ?? null,
+    frequency_count: item.frequency_count || 1,
+    frequency_unit: item.frequency_unit || 'day',
+    instructions: item.instructions || null,
+    sort_order: item.sort_order || 0,
+    active: item.active ?? true,
+  };
+  if (item.id) {
+    const { data, error } = await supabase
+      .from('haccp_equipment')
+      .update(payload)
+      .eq('id', item.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+  const { data, error } = await supabase
+    .from('haccp_equipment')
+    .insert([payload])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deactivateHaccpEquipment(id) {
+  const { error } = await supabase.from('haccp_equipment').update({ active: false }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function fetchHaccpCompletion(branch, date) {
+  if (!branch || !date) return [];
+  const { data, error } = await supabase.rpc('haccp_required_completion', {
+    input_branch: branch,
+    input_date: date,
+  });
+  if (error) throw error;
+  return data || [];
+}
+
 export async function fetchActiveBranches() {
   const [settingsResult, reportsResult, ordersResult] = await Promise.all([
     supabase.from('branch_settings').select('branch,pin').eq('active', true).order('branch'),

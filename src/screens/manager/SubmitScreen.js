@@ -10,7 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import {
   supabase, insertDailyReport, fetchDailyReports, fetchSpecOrders,
-  fetchBranchWorkers, saveBranchWorkers, updateDailyReport,
+  fetchBranchWorkers, saveBranchWorkers, updateDailyReport, fetchHaccpCompletion,
 } from '../../lib/supabase';
 import { COLORS } from '../../constants';
 
@@ -239,6 +239,8 @@ export default function ManagerSubmitScreen() {
   const [submitted,    setSubmitted]    = useState(false);
   const [draftLoaded,  setDraftLoaded]  = useState(false);
   const [showCal,      setShowCal]      = useState(false);
+  const [haccpRequirements, setHaccpRequirements] = useState([]);
+  const [haccpLoading, setHaccpLoading] = useState(false);
   const autoSaveTimer = useRef(null);
 
   /* ── reset form when date changes ── */
@@ -250,6 +252,7 @@ export default function ManagerSubmitScreen() {
     setNotes(''); setNoteType('general');
     setDrId(null); setCfId(null);
     setDrSubmitted(false); setCfSubmitted(false); setSpecDone(false);
+    setHaccpRequirements([]);
     setDraftLoaded(false);
   }
 
@@ -295,6 +298,16 @@ export default function ManagerSubmitScreen() {
         setCfSubmitted(!!cfRecord);
         setSpecDone(!!(sp && sp.length));
       } catch {}
+
+      try {
+        setHaccpLoading(true);
+        const requirements = await fetchHaccpCompletion(branch, selectedDate);
+        setHaccpRequirements(requirements);
+      } catch {
+        setHaccpRequirements([]);
+      } finally {
+        setHaccpLoading(false);
+      }
 
       if (drRecord) {
         // Editing existing daily report — populate form from DB
@@ -419,6 +432,9 @@ export default function ManagerSubmitScreen() {
   const netProfit  = rev - totalCF;
   const laborCost  = hoursN * 22;
   const revPerHour = hoursN > 0 ? Math.round(rev/hoursN) : 0;
+  const missingHaccp = haccpRequirements.filter(item => !item.is_complete);
+  const haccpConfigured = haccpRequirements.length > 0;
+  const haccpComplete = haccpConfigured && missingHaccp.length === 0;
 
   const bigPlatform = PLATFORMS.find(p => rev>0 && n(platforms[p])/rev > 0.35);
   const inneRow  = cfCats.find(e=>e.name==='Inne');
@@ -452,6 +468,33 @@ export default function ManagerSubmitScreen() {
 
   /* ── submit ── */
   async function handleSubmit() {
+    if (haccpLoading) {
+      Alert.alert('HACCP check loading', 'Please wait a moment while the app checks today\'s required HACCP records.');
+      return;
+    }
+    if (!haccpConfigured) {
+      Alert.alert(
+        'HACCP setup required',
+        'Add this branch\'s fridges, freezers, bemars, rooms/tools/cold units and pest areas before submitting the daily report.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open HACCP', onPress: () => navigation.navigate('HACCP') },
+        ]
+      );
+      return;
+    }
+    if (!haccpComplete) {
+      const names = missingHaccp.slice(0, 6).map(item => `• ${item.requirement_name} (${item.completed_count}/${item.required_count})`).join('\n');
+      Alert.alert(
+        'Complete HACCP first',
+        `${names}${missingHaccp.length > 6 ? '\n• ...' : ''}\n\nDaily report cannot be submitted until these checks are saved.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open HACCP', onPress: () => navigation.navigate('HACCP') },
+        ]
+      );
+      return;
+    }
     const errs = validate();
     if (errs.length) {
       Alert.alert('⚠️ Check Before Submit', errs.join('\n'), [
@@ -586,6 +629,35 @@ export default function ManagerSubmitScreen() {
 
       <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}>
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+          <SectionCard title="HACCP / GMP status" color={haccpComplete ? COLORS.primary : COLORS.danger}>
+            {haccpLoading ? (
+              <View style={s.haccpStatusRow}>
+                <ActivityIndicator color={COLORS.primary} size="small" />
+                <Text style={s.haccpText}>Checking required register records...</Text>
+              </View>
+            ) : !haccpConfigured ? (
+              <>
+                <Text style={s.haccpBad}>Branch HACCP setup is not configured yet.</Text>
+                <Text style={s.haccpText}>Add fridges, freezers, bemars, rooms/tools/cold units and pest areas in the HACCP tab before submitting reports.</Text>
+                <TouchableOpacity style={s.haccpBtn} onPress={() => navigation.navigate('HACCP')}>
+                  <Text style={s.haccpBtnTxt}>Open HACCP setup</Text>
+                </TouchableOpacity>
+              </>
+            ) : haccpComplete ? (
+              <Text style={s.haccpGood}>All required HACCP/GMP records are complete for {selectedDate}.</Text>
+            ) : (
+              <>
+                <Text style={s.haccpBad}>Complete these before submitting:</Text>
+                {missingHaccp.slice(0, 5).map(item => (
+                  <Text key={item.equipment_id} style={s.haccpMissing}>• {item.requirement_name}: {item.completed_count}/{item.required_count}</Text>
+                ))}
+                {missingHaccp.length > 5 && <Text style={s.haccpText}>And {missingHaccp.length - 5} more item(s).</Text>}
+                <TouchableOpacity style={s.haccpBtn} onPress={() => navigation.navigate('HACCP')}>
+                  <Text style={s.haccpBtnTxt}>Open HACCP register</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </SectionCard>
 
           {/* ── REVENUE ── */}
           <SectionCard title="💰 Revenue" color={COLORS.primary}>
@@ -825,6 +897,13 @@ const s = StyleSheet.create({
   stickyStatLbl:   { fontSize:9, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:0.5 },
   stickyStatVal:   { fontSize:15, fontWeight:'900', color:'#fff', marginTop:1 },
   stickySeparator: { width:1, height:30, backgroundColor:'rgba(255,255,255,0.15)', marginHorizontal:4 },
+  haccpStatusRow:  { flexDirection:'row', alignItems:'center', gap:8 },
+  haccpText:       { color:'#666', fontSize:12, lineHeight:18 },
+  haccpGood:       { color:COLORS.primary, fontSize:13, fontWeight:'900', lineHeight:18 },
+  haccpBad:        { color:COLORS.danger, fontSize:13, fontWeight:'900', lineHeight:18 },
+  haccpMissing:    { color:'#333', fontSize:12, lineHeight:19, fontWeight:'700' },
+  haccpBtn:        { alignSelf:'flex-start', backgroundColor:COLORS.primary, borderRadius:10, paddingHorizontal:12, paddingVertical:9, marginTop:6 },
+  haccpBtnTxt:     { color:'#fff', fontSize:12, fontWeight:'900' },
   submitBtn:       { backgroundColor:COLORS.primary, borderRadius:12, paddingHorizontal:18, paddingVertical:13 },
   updateBtn:       { backgroundColor:'#1565C0' },
   submitTxt:       { color:'#fff', fontWeight:'900', fontSize:13 },
