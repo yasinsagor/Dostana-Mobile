@@ -25,12 +25,9 @@ import { COLORS } from '../../constants';
 
 const REGISTER_TYPES = [
   { code: 'temperature', label: 'Temperature', icon: '🌡️' },
-  { code: 'cleaning_room', label: 'Rooms', icon: '🧹' },
-  { code: 'cleaning_equipment', label: 'Tools / units', icon: '🧼' },
   { code: 'pest_control', label: 'Pests', icon: '🔎' },
-  { code: 'delivery', label: 'Delivery', icon: '📦' },
-  { code: 'oil', label: 'Oil', icon: '🍟' },
-  { code: 'training', label: 'Training', icon: '🎓' },
+  { code: 'cleaning_room', label: 'Cleaning rooms', icon: '🧹' },
+  { code: 'cleaning_equipment', label: 'Cleaning equipment', icon: '🧼' },
 ];
 
 const EQUIPMENT_GROUPS = [
@@ -43,7 +40,7 @@ const EQUIPMENT_GROUPS = [
     max: 8,
     frequency_count: 1,
     frequency_unit: 'day',
-    instructions: 'Record fridge temperature at least once per day. Safe range: +2 to +8°C.',
+    instructions: 'Safe range: +2 to +8°C. Exact logging frequency is not specified in the uploaded book, so set it here for this branch.',
   },
   {
     key: 'freezer',
@@ -54,7 +51,7 @@ const EQUIPMENT_GROUPS = [
     max: -18,
     frequency_count: 1,
     frequency_unit: 'day',
-    instructions: 'Record freezer temperature at least once per day. Safe limit: -18°C or colder.',
+    instructions: 'Safe limit: -18°C or colder. Exact logging frequency is not specified in the uploaded book, so set it here for this branch.',
   },
   {
     key: 'bemar',
@@ -65,7 +62,7 @@ const EQUIPMENT_GROUPS = [
     max: 65,
     frequency_count: 1,
     frequency_unit: 'day',
-    instructions: 'Record bemar/hot-holding temperature at least once per day. Safe range: +60 to +65°C.',
+    instructions: 'Safe range: +60 to +65°C. Exact logging frequency is not specified in the uploaded book, so set it here for this branch.',
   },
   {
     key: 'room',
@@ -73,7 +70,7 @@ const EQUIPMENT_GROUPS = [
     register_type: 'cleaning_room',
     frequency_count: 1,
     frequency_unit: 'day',
-    instructions: 'Confirm the room was cleaned and disinfected. Daily rooms must be completed before report submission.',
+    instructions: 'Confirm the room was cleaned and disinfected. Exact cleaning frequency is not specified in the uploaded book, so set it here for this branch.',
   },
   {
     key: 'machine_tool',
@@ -81,7 +78,7 @@ const EQUIPMENT_GROUPS = [
     register_type: 'cleaning_equipment',
     frequency_count: 1,
     frequency_unit: 'day',
-    instructions: 'Confirm machines, knives, boards and work tools were washed, disinfected and dried.',
+    instructions: 'Confirm machines, knives, boards and work tools were washed, disinfected and dried. Set the required frequency for this branch.',
   },
   {
     key: 'cold_unit',
@@ -89,7 +86,7 @@ const EQUIPMENT_GROUPS = [
     register_type: 'cleaning_equipment',
     frequency_count: 1,
     frequency_unit: 'day',
-    instructions: 'Confirm fridge/freezer/cold unit surfaces were cleaned according to the branch GMP/GHP schedule.',
+    instructions: 'Confirm fridge/freezer/cold unit surfaces were cleaned and disinfected. Set the required frequency for this branch.',
   },
   {
     key: 'pest_area',
@@ -97,7 +94,7 @@ const EQUIPMENT_GROUPS = [
     register_type: 'pest_control',
     frequency_count: 1,
     frequency_unit: 'day',
-    instructions: 'Check food storage, waste area and entry points daily. If anything is found, action is required.',
+    instructions: 'Check the configured area for pest activity. Exact check frequency is not specified in the uploaded book, so set it here for this branch.',
   },
 ];
 
@@ -106,28 +103,28 @@ const FALLBACK_INSTRUCTIONS = [
     code: 'temperature',
     register_type: 'temperature',
     title: 'Temperature register',
-    description: 'Each branch sets its own fridges, freezers and bemars. Daily items must be completed before report submission.',
+    description: 'Each branch sets its own fridges, freezers and bemars. The uploaded book gives limits, but not exact input frequency, so the manager sets the frequency.',
     steps: ['Fridge: +2 to +8°C.', 'Freezer: -18°C or below.', 'Bemar / hot holding: +60 to +65°C.', 'If outside limit, write corrective action before saving.'],
   },
   {
     code: 'cleaning_room',
     register_type: 'cleaning_room',
     title: 'Room cleaning and disinfection',
-    description: 'Rooms are configured branch by branch. Daily rooms must be signed before report submission.',
+    description: 'Rooms are configured branch by branch. The manager sets how often each cleaning/disinfection register must be completed.',
     steps: ['Remove waste and food residues.', 'Wash, disinfect and let surfaces dry.', 'Record initials/name and any issue found.'],
   },
   {
     code: 'cleaning_equipment',
     register_type: 'cleaning_equipment',
     title: 'Machines, tools and cold units',
-    description: 'Managers add the machines, tools and cold units used in their branch.',
+    description: 'Managers add the machines, tools and cold units used in their branch and set the required frequency.',
     steps: ['Switch off equipment safely where needed.', 'Wash, rinse, disinfect and dry.', 'Report faults immediately.'],
   },
   {
     code: 'pest_control',
     register_type: 'pest_control',
     title: 'Pest control register',
-    description: 'Check configured pest-control areas daily. Any pest evidence requires action.',
+    description: 'Check configured pest-control areas. The manager sets the required frequency because the uploaded book does not define exact counts.',
     steps: ['Check storage, waste area and entry points.', 'Protect food immediately if evidence is found.', 'Write action taken before saving.'],
   },
 ];
@@ -482,7 +479,7 @@ export default function HaccpScreen() {
               <>
                 <View style={styles.notice}>
                   <Text style={styles.noticeTitle}>Branch equipment setup</Text>
-                  <Text style={styles.noticeText}>Add exactly what this location has. Daily items must be completed before the manager can submit the daily report.</Text>
+                  <Text style={styles.noticeText}>Add exactly what this location has. The uploaded HACCP/GMP-GHP book does not define exact daily/weekly/monthly counts, so set the required frequency here for each item.</Text>
                 </View>
                 <View style={styles.card}>
                   <Text style={styles.cardTitle}>Add item</Text>
