@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,9 +38,9 @@ const EQUIPMENT_GROUPS = [
     unit: 'C',
     min: 2,
     max: 8,
-    frequency_count: 1,
+    frequency_count: 2,
     frequency_unit: 'day',
-    instructions: 'Safe range: +2 to +8°C. Exact logging frequency is not specified in the uploaded book, so set it here for this branch.',
+    instructions: 'Safe range: +2 to +8°C. Temperature should be recorded 2 times per day for this branch.',
   },
   {
     key: 'freezer',
@@ -49,9 +49,9 @@ const EQUIPMENT_GROUPS = [
     unit: 'C',
     min: null,
     max: -18,
-    frequency_count: 1,
+    frequency_count: 2,
     frequency_unit: 'day',
-    instructions: 'Safe limit: -18°C or colder. Exact logging frequency is not specified in the uploaded book, so set it here for this branch.',
+    instructions: 'Safe limit: -18°C or colder. Temperature should be recorded 2 times per day for this branch.',
   },
   {
     key: 'bemar',
@@ -60,9 +60,9 @@ const EQUIPMENT_GROUPS = [
     unit: 'C',
     min: 60,
     max: 65,
-    frequency_count: 1,
+    frequency_count: 2,
     frequency_unit: 'day',
-    instructions: 'Safe range: +60 to +65°C. Exact logging frequency is not specified in the uploaded book, so set it here for this branch.',
+    instructions: 'Safe range: +60 to +65°C. Temperature should be recorded 2 times per day for this branch.',
   },
   {
     key: 'room',
@@ -103,8 +103,8 @@ const FALLBACK_INSTRUCTIONS = [
     code: 'temperature',
     register_type: 'temperature',
     title: 'Temperature register',
-    description: 'Each branch sets its own fridges, freezers and bemars. The uploaded book gives limits, but not exact input frequency, so the manager sets the frequency.',
-    steps: ['Fridge: +2 to +8°C.', 'Freezer: -18°C or below.', 'Bemar / hot holding: +60 to +65°C.', 'If outside limit, write corrective action before saving.'],
+    description: 'Each branch sets its own fridges, freezers and bemars. Temperature records should be completed 2 times per day.',
+    steps: ['Fridge: +2 to +8°C.', 'Freezer: -18°C or below.', 'Bemar / hot holding: +60 to +65°C.', 'Record temperature 2 times per day.', 'If outside limit, write corrective action before saving.'],
   },
   {
     code: 'cleaning_room',
@@ -172,6 +172,7 @@ function compliantTemperature(reading, item) {
 
 export default function HaccpScreen() {
   const { user } = useAuth();
+  const recordScrollRef = useRef(null);
   const branch = user?.branch || '';
   const [mode, setMode] = useState('record');
   const [type, setType] = useState('temperature');
@@ -254,6 +255,7 @@ export default function HaccpScreen() {
     setCorrectiveAction('');
     setRecheckReading('');
     setManualCompliant(true);
+    setTimeout(() => recordScrollRef.current?.scrollToEnd?.({ animated: true }), 80);
   }
 
   function changeSetupGroup(nextGroup) {
@@ -383,7 +385,7 @@ export default function HaccpScreen() {
         {loading ? (
           <View style={styles.loading}><ActivityIndicator color={COLORS.primary} /><Text style={styles.muted}>Loading HACCP setup...</Text></View>
         ) : (
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <ScrollView ref={recordScrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             {mode === 'record' && (
               <>
                 <DailyStatus configured={dailyConfigured} complete={dailyComplete} missing={missingDaily} onSetup={() => setMode('setup')} />
@@ -568,8 +570,8 @@ function DailyStatus({ configured, complete, missing, onSetup }) {
   if (!configured) {
     return (
       <TouchableOpacity style={styles.warning} onPress={onSetup}>
-        <Text style={styles.warningTitle}>HACCP setup required before reports</Text>
-        <Text style={styles.warningText}>Add branch fridges, freezers, bemars, rooms/tools/cold units and pest areas first.</Text>
+        <Text style={styles.warningTitle}>HACCP setup not configured yet</Text>
+        <Text style={styles.warningText}>Add branch fridges, freezers, bemars, rooms/tools/cold units and pest areas. Daily report submission is not blocked.</Text>
       </TouchableOpacity>
     );
   }
@@ -577,7 +579,7 @@ function DailyStatus({ configured, complete, missing, onSetup }) {
     <View style={[styles.notice, complete ? styles.noticeOk : styles.noticeBad]}>
       <Text style={styles.noticeTitle}>{complete ? 'Daily HACCP complete' : 'Daily HACCP not complete'}</Text>
       <Text style={styles.noticeText}>
-        {complete ? 'The daily report can be submitted for today.' : `Missing: ${missing.slice(0, 4).map(item => item.requirement_name).join(', ')}${missing.length > 4 ? '...' : ''}`}
+        {complete ? 'All configured records are complete for today.' : `Missing: ${missing.slice(0, 4).map(item => item.requirement_name).join(', ')}${missing.length > 4 ? '...' : ''}. Daily report submission is not blocked.`}
       </Text>
     </View>
   );

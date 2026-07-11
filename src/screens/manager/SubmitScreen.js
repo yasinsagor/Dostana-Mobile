@@ -468,33 +468,6 @@ export default function ManagerSubmitScreen() {
 
   /* ── submit ── */
   async function handleSubmit() {
-    if (haccpLoading) {
-      Alert.alert('HACCP check loading', 'Please wait a moment while the app checks today\'s required HACCP records.');
-      return;
-    }
-    if (!haccpConfigured) {
-      Alert.alert(
-        'HACCP setup required',
-        'Add this branch\'s fridges, freezers, bemars, rooms/tools/cold units and pest areas before submitting the daily report.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open HACCP', onPress: () => navigation.navigate('HACCP') },
-        ]
-      );
-      return;
-    }
-    if (!haccpComplete) {
-      const names = missingHaccp.slice(0, 6).map(item => `• ${item.requirement_name} (${item.completed_count}/${item.required_count})`).join('\n');
-      Alert.alert(
-        'Complete HACCP first',
-        `${names}${missingHaccp.length > 6 ? '\n• ...' : ''}\n\nDaily report cannot be submitted until these checks are saved.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open HACCP', onPress: () => navigation.navigate('HACCP') },
-        ]
-      );
-      return;
-    }
     const errs = validate();
     if (errs.length) {
       Alert.alert('⚠️ Check Before Submit', errs.join('\n'), [
@@ -629,7 +602,7 @@ export default function ManagerSubmitScreen() {
 
       <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}>
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-          <SectionCard title="HACCP / GMP status" color={haccpComplete ? COLORS.primary : COLORS.danger}>
+          <SectionCard title="HACCP / GMP status (optional)" color={haccpComplete ? COLORS.primary : COLORS.danger}>
             {haccpLoading ? (
               <View style={s.haccpStatusRow}>
                 <ActivityIndicator color={COLORS.primary} size="small" />
@@ -637,21 +610,21 @@ export default function ManagerSubmitScreen() {
               </View>
             ) : !haccpConfigured ? (
               <>
-                <Text style={s.haccpBad}>Branch HACCP setup is not configured yet.</Text>
-                <Text style={s.haccpText}>Add fridges, freezers, bemars, rooms/tools/cold units and pest areas in the HACCP tab before submitting reports.</Text>
+                <Text style={s.haccpBad}>Branch HACCP setup is not configured yet. Daily report submission is still allowed.</Text>
+                <Text style={s.haccpText}>HACCP setup is optional for report submission. Add branch equipment in the HACCP tab when ready.</Text>
                 <TouchableOpacity style={s.haccpBtn} onPress={() => navigation.navigate('HACCP')}>
                   <Text style={s.haccpBtnTxt}>Open HACCP setup</Text>
                 </TouchableOpacity>
               </>
             ) : haccpComplete ? (
-              <Text style={s.haccpGood}>All required HACCP/GMP records are complete for {selectedDate}.</Text>
+              <Text style={s.haccpGood}>HACCP/GMP records are complete for {selectedDate}.</Text>
             ) : (
               <>
-                <Text style={s.haccpBad}>Complete these before submitting:</Text>
+                <Text style={s.haccpBad}>HACCP records still missing, but report submission is allowed:</Text>
                 {missingHaccp.slice(0, 5).map(item => (
                   <Text key={item.equipment_id} style={s.haccpMissing}>• {item.requirement_name}: {item.completed_count}/{item.required_count}</Text>
                 ))}
-                {missingHaccp.length > 5 && <Text style={s.haccpText}>And {missingHaccp.length - 5} more item(s).</Text>}
+                {missingHaccp.length > 5 && <Text style={s.haccpText}>And {missingHaccp.length - 5} more item(s). You can still submit the daily report.</Text>}
                 <TouchableOpacity style={s.haccpBtn} onPress={() => navigation.navigate('HACCP')}>
                   <Text style={s.haccpBtnTxt}>Open HACCP register</Text>
                 </TouchableOpacity>

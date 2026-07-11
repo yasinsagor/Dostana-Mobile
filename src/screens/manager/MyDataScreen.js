@@ -876,7 +876,20 @@ function ManagerMyDataContent({ deferHeavy = false }) {
   allDr.forEach(r => { const b = r.branch || ''; branchRevMap[b] = (branchRevMap[b] || 0) + (r.total_revenue || r.revenue || 0); });
   const sorted = Object.entries(branchRevMap).sort((a, b) => b[1] - a[1]);
   const myRank = sorted.findIndex(([b]) => b === branch) + 1 || '?';
-  const chainAvg = sorted.length > 0 ? Math.round(sorted.reduce((s, [, v]) => s + v, 0) / sorted.length) : 0;
+  const rankCount = sorted.length;
+  const rankPercentile = typeof myRank === 'number' && rankCount > 0 ? Math.round((1 - (myRank - 1) / rankCount) * 100) : null;
+  const rankReasonParts = [];
+  if (typeof myRank === 'number' && myRank === 1) rankReasonParts.push('Your branch is currently leading the chain for this period.');
+  else if (typeof myRank === 'number' && myRank <= 3) rankReasonParts.push('Your branch is in the top group for this period.');
+  else if (typeof myRank === 'number' && rankCount > 0) rankReasonParts.push(`Your branch is currently #${myRank} out of ${rankCount}.`);
+  rankReasonParts.push('Ranking is calculated from submitted branch performance for the selected period. Other branches’ sales amounts are hidden for privacy.');
+  if (dr.length < new Date().getDate() - 3) rankReasonParts.push('Submitting reports consistently can help the branch ranking stay accurate.');
+  if (revPct !== null && revPct < 0) rankReasonParts.push('Your branch is lower than last month, so growth needs attention.');
+  if (delivPct > 40) rankReasonParts.push('Delivery share is high; stronger direct sales may improve performance quality.');
+  if (foodCostPct && parseFloat(foodCostPct) > 15) rankReasonParts.push('Food/SPEC cost is above target, so ordering control can improve your score.');
+  if (totalCF > 0 && rev > 0 && totalCF / rev > 0.5) rankReasonParts.push('Cash-flow expenses are high compared with your own revenue, so cost control needs attention.');
+  if (totalHours > 0 && revPerHr < 120) rankReasonParts.push('Revenue per labour hour is low; scheduling and productivity may need review.');
+  const rankExplanation = rankReasonParts.join(' ');
   const { arrow: revArrow, color: arrowColor } = trendArrow(revPct);
 
   if (loading) return (
@@ -1244,32 +1257,32 @@ function ManagerMyDataContent({ deferHeavy = false }) {
           <SectionCard title="Your Position" color={COLORS.primary}>
             <View style={s.rankBig}>
               <Text style={s.rankNumber}>#{myRank}</Text>
-              <Text style={s.rankOf}>out of {sorted.length} branches</Text>
-              <Text style={[s.rankRev, { color: COLORS.primary }]}>{fmtK(rev)} PLN this month</Text>
+              <Text style={s.rankOf}>out of {rankCount} branches</Text>
+              <Text style={[s.rankRev, { color: COLORS.primary }]}>Your branch performance only</Text>
             </View>
             <View style={{ flexDirection: 'row', marginTop: 8 }}>
-              <StatCard label="Chain Avg" value={`${fmtK(chainAvg)} PLN`} color="#555" bg="#F5F5F5" />
-              <StatCard label="vs Avg" value={rev > 0 ? `${rev > chainAvg ? '+' : ''}${Math.round((rev - chainAvg) / chainAvg * 100)}%` : '—'}
-                color={rev >= chainAvg ? COLORS.primary : COLORS.danger}
-                bg={rev >= chainAvg ? '#E8F5E9' : '#FFEBEE'} />
+              <StatCard label="Position" value={rankPercentile ? `Top ${rankPercentile}%` : '—'} color={COLORS.primary} bg="#E8F5E9" />
+              <StatCard label="Branches" value={`${rankCount}`} color="#555" bg="#F5F5F5" />
               <StatCard label="vs Last Mo" value={revArrow} color={arrowColor} bg="#F5F5F5" />
+            </View>
+            <View style={[s.infoBox, { marginTop: 10 }]}>
+              <Text style={s.infoTxt}>{rankExplanation}</Text>
             </View>
           </SectionCard>
 
-          <SectionCard title="🏆 Chain Leaderboard" color="#E65100">
-            {sorted.slice(0, 10).map(([b, v], i) => {
+          <SectionCard title="Chain Leaderboard" color="#E65100">
+            <Text style={s.privacyNote}>Other branch sales are hidden. Managers can only see ranking position, not sales amounts.</Text>
+            {sorted.slice(0, 10).map(([b], i) => {
               const isMe = b === branch;
-              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+              const medal = i === 0 ? '1st' : i === 1 ? '2nd' : i === 2 ? '3rd' : `#${i + 1}`;
               return (
                 <View key={b} style={[s.rankRow, isMe && s.rankRowMe]}>
-                  <Text style={s.rankPos}>{medal || `#${i + 1}`}</Text>
+                  <Text style={s.rankPos}>{medal}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={[s.rankBranchName, isMe && { color: COLORS.primary }]}>{b}{isMe ? ' ← You' : ''}</Text>
-                    <View style={s.rankBarWrap}>
-                      <View style={[s.rankBarFill, { width: `${Math.round(v / (sorted[0]?.[1] || 1) * 100)}%`, backgroundColor: isMe ? COLORS.primary : '#E0E0E0' }]} />
-                    </View>
+                    <Text style={s.rankPrivate}>{isMe ? 'Your branch' : 'Sales hidden'}</Text>
                   </View>
-                  <Text style={[s.rankVal, isMe && { color: COLORS.primary }]}>{fmtK(v)}</Text>
+                  <Text style={[s.rankVal, isMe && { color: COLORS.primary }]}>{isMe ? 'You' : `#${i + 1}`}</Text>
                 </View>
               );
             })}
@@ -1534,6 +1547,8 @@ const s = StyleSheet.create({
   rankRowMe: { backgroundColor: '#E8F5E9', borderRadius: 8, paddingHorizontal: 6 },
   rankPos: { fontSize: 16, width: 30 },
   rankBranchName: { fontSize: 12, fontWeight: '700', color: '#333' },
+  rankPrivate: { fontSize: 10, color: '#999', marginTop: 2 },
+  privacyNote: { fontSize: 11, color: '#777', lineHeight: 16, marginBottom: 8 },
   rankBarWrap: { height: 4, backgroundColor: '#EEE', borderRadius: 2, marginTop: 3, overflow: 'hidden' },
   rankBarFill: { height: 4, borderRadius: 2 },
   rankVal: { fontSize: 12, fontWeight: '800', color: '#555', width: 50, textAlign: 'right' },
