@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { supabase, fetchAllDailyReports } from '../../lib/supabase';
+import { supabase, fetchAllDailyReports, fetchGoogleReviewDashboard } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS, BRANCHES, setRuntimeBranches } from '../../constants';
 
@@ -35,6 +35,7 @@ export default function OwnerDashboardScreen() {
   const [todayCashflow, setTodayCashflow] = useState([]);
   const [todaySpec, setTodaySpec] = useState([]);
   const [trendDaily, setTrendDaily] = useState([]);
+  const [googleReviews, setGoogleReviews] = useState([]);
   const [dashboardBranches, setDashboardBranches] = useState(BRANCHES);
   const [showBranches, setShowBranches] = useState(false);
 
@@ -42,12 +43,13 @@ export default function OwnerDashboardScreen() {
     try {
       const t = todayStr();
       const wk = daysAgoStr(6);
-      const [daily, cfRes, spRes, trend, branchRes] = await Promise.all([
+      const [daily, cfRes, spRes, trend, branchRes, reviewSummary] = await Promise.all([
         fetchAllDailyReports(t, t),
         supabase.from('cashflow_reports').select('*').eq('date', t),
         supabase.from('spec_orders').select('*').eq('date', t),
         fetchAllDailyReports(wk, t),
         supabase.from('branch_settings').select('branch,pin,active').eq('active', true).order('branch'),
+        fetchGoogleReviewDashboard().catch(() => []),
       ]);
       const liveBranches = (branchRes.data || [])
         .map(item => ({ name: item.branch, pin: item.pin || '' }))
@@ -60,6 +62,7 @@ export default function OwnerDashboardScreen() {
       setTodayCashflow(cfRes.data || []);
       setTodaySpec(spRes.data || []);
       setTrendDaily(trend || []);
+      setGoogleReviews(reviewSummary || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
@@ -105,6 +108,8 @@ export default function OwnerDashboardScreen() {
   const last7 = Array.from({ length: 7 }, (_, i) => daysAgoStr(6 - i));
   const trendByDay = last7.map(date => ({ date, rev: trendDaily.filter(r => r.date === date).reduce((s, r) => s + (r.total_revenue || r.revenue || 0), 0) }));
   const maxRev = Math.max(...trendByDay.map(d => d.rev), 1);
+  const avgGoogleRating = googleReviews.length ? googleReviews.filter(r => r.rating > 0).reduce((sum, r) => sum + r.rating, 0) / Math.max(googleReviews.filter(r => r.rating > 0).length, 1) : 0;
+  const googleMonthReviews = googleReviews.reduce((sum, r) => sum + (r.month_reviews || 0), 0);
 
   if (loading) return (
     <SafeAreaView style={s.safe}>
@@ -148,6 +153,28 @@ export default function OwnerDashboardScreen() {
           <View style={s.metCard}><Text style={s.metLabel}>EXPENSES</Text><Text style={[s.metVal, { color: COLORS.danger }]}>PLN {fmtK(todayExpenses)}</Text></View>
           <View style={s.metCard}><Text style={s.metLabel}>CASH</Text><Text style={[s.metVal, { color: '#1565C0' }]}>PLN {fmtK(todayCash)}</Text></View>
           <View style={s.metCard}><Text style={s.metLabel}>SUBMITTED</Text><Text style={[s.metVal, { color: COLORS.text }]}>{activeSubmittedCount}/{dashboardBranches.length}</Text></View>
+        </View>
+
+        {/* Google reviews */}
+        <Text style={s.secTitle}>⭐ Google Reviews</Text>
+        <View style={s.card}>
+          {googleReviews.length === 0 ? (
+            <Text style={s.emptyTxt}>No synced Google review data yet</Text>
+          ) : (
+            <>
+              <View style={s.reviewSummaryRow}>
+                <View style={s.reviewMetric}><Text style={s.reviewVal}>{avgGoogleRating ? avgGoogleRating.toFixed(1) : '—'}</Text><Text style={s.reviewLbl}>Avg stars</Text></View>
+                <View style={s.reviewMetric}><Text style={s.reviewVal}>{googleReviews.reduce((sum, r) => sum + (r.total_reviews || 0), 0)}</Text><Text style={s.reviewLbl}>Total reviews</Text></View>
+                <View style={s.reviewMetric}><Text style={s.reviewVal}>{googleMonthReviews}</Text><Text style={s.reviewLbl}>This month</Text></View>
+              </View>
+              {googleReviews.slice(0, 5).map((item, index) => (
+                <View key={item.branch} style={s.reviewRow}>
+                  <Text style={s.reviewBranch}>{index + 1}. {item.branch}</Text>
+                  <Text style={s.reviewStars}>⭐ {item.rating ? item.rating.toFixed(1) : '—'} · {item.total_reviews || 0}</Text>
+                </View>
+              ))}
+            </>
+          )}
         </View>
 
         {/* 3. TODAY SPEC */}
@@ -270,6 +297,13 @@ const s = StyleSheet.create({
   specQty: { fontSize: 14, color: '#6A1B9A', fontWeight: '700' },
   specHighlight: { marginTop: 12, backgroundColor: '#F3E5F5', borderRadius: 8, padding: 10 },
   specHighlightTxt: { fontSize: 13, color: '#6A1B9A', fontWeight: '600' },
+  reviewSummaryRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  reviewMetric: { flex: 1, backgroundColor: '#F8FBF9', borderRadius: 10, padding: 10, alignItems: 'center' },
+  reviewVal: { fontSize: 18, fontWeight: '900', color: COLORS.primary },
+  reviewLbl: { fontSize: 10, color: '#777', marginTop: 2, fontWeight: '700' },
+  reviewRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  reviewBranch: { fontSize: 13, color: '#333', fontWeight: '700', flex: 1 },
+  reviewStars: { fontSize: 13, color: '#E8A317', fontWeight: '800' },
   branchCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, elevation: 2 },
   branchHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   dot: { width: 10, height: 10, borderRadius: 5 },

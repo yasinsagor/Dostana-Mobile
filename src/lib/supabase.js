@@ -8,6 +8,31 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
 });
 
+export async function fetchGoogleReviewDashboard() {
+  const [{ data: metrics, error: metricError }, { data: reviews, error: reviewError }] = await Promise.all([
+    supabase.from('google_place_metrics').select('branch,rating,user_rating_count,fetched_at').order('fetched_at', { ascending: false }).limit(500),
+    supabase.from('google_reviews').select('branch,rating,review_time').gte('review_time', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()).order('review_time', { ascending: false }).limit(1000),
+  ]);
+  if (metricError) throw metricError;
+  if (reviewError) throw reviewError;
+  const latest = new Map();
+  (metrics || []).forEach(row => { if (!latest.has(row.branch)) latest.set(row.branch, row); });
+  const summary = [...latest.values()].map(row => {
+    const branchReviews = (reviews || []).filter(item => item.branch === row.branch);
+    const avgMonth = branchReviews.length ? branchReviews.reduce((sum, item) => sum + (Number(item.rating) || 0), 0) / branchReviews.length : 0;
+    return {
+      branch: row.branch,
+      rating: Number(row.rating || 0),
+      total_reviews: Number(row.user_rating_count || 0),
+      month_reviews: branchReviews.length,
+      month_rating: Math.round(avgMonth * 10) / 10,
+      low_reviews: branchReviews.filter(item => Number(item.rating || 0) > 0 && Number(item.rating || 0) <= 3).length,
+      fetched_at: row.fetched_at,
+    };
+  }).sort((a, b) => b.rating - a.rating || b.total_reviews - a.total_reviews);
+  return summary;
+}
+
 function parseJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') {
