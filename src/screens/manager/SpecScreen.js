@@ -45,6 +45,42 @@ function fallbackPrice(p) {
   return 10;
 }
 
+function normalizeSpecItems(rawItems) {
+  if (typeof rawItems === 'string') {
+    try { return JSON.parse(rawItems); } catch { return []; }
+  }
+  return Array.isArray(rawItems) ? rawItems : [];
+}
+
+function buildOrderStateFromItems(products, rawItems) {
+  const quantities = {};
+  const kgQtys = {};
+  const selectedUnits = {};
+  const items = normalizeSpecItems(rawItems);
+
+  items.forEach(item => {
+    const product = products.find(p => p.id === item.id || p.name === item.name);
+    if (!product) return;
+    const qty = n(item.qty);
+    if (qty <= 0) return;
+
+    if ((product.name === 'Kurczak' || product.name === 'Baranina') && KG_SIZES.includes(item.unit)) {
+      kgQtys[product.id] = {
+        ...(kgQtys[product.id] || {}),
+        [item.unit]: n((kgQtys[product.id] || {})[item.unit]) + qty,
+      };
+      return;
+    }
+
+    quantities[product.id] = String(qty);
+    if (item.unit && getUnitOptions(product).some(option => option.unit === item.unit)) {
+      selectedUnits[product.id] = item.unit;
+    }
+  });
+
+  return { quantities, kgQtys, selectedUnits };
+}
+
 /* ─── category tab ────────────────────────────────────────── */
 function CatTab({ label, active, onPress, badge }) {
   return (
@@ -288,6 +324,8 @@ export default function ManagerSpecScreen() {
   const [activeTab, setActiveTab] = useState('All');
   const [search,    setSearch]    = useState('');
   const [note,      setNote]      = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [kgQtys, setKgQtys] = useState({}); // { productId: { '10kg': 2, '20kg': 1 } } for Kurczak/Baranina
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
@@ -322,9 +360,10 @@ export default function ManagerSpecScreen() {
         const { data:prev } = await supabase
           .from('spec_orders').select('items,date').eq('branch',branch)
           .lt('date',today).order('date',{ascending:false}).limit(1);
+        let previousOrder = null;
         if (prev && prev[0]) {
-          let items = prev[0].items;
-          if (typeof items === 'string') { try { items = JSON.parse(items); } catch { items = []; } }
+          const items = normalizeSpecItems(prev[0].items);
+          previousOrder = { date: prev[0].date, items: Array.isArray(items) ? items : [] };
           setLastOrder({ date: prev[0].date, items: Array.isArray(items) ? items : [] });
         }
 
@@ -356,6 +395,7 @@ export default function ManagerSpecScreen() {
         setMonthSpec(spCost);
 
         // restore draft
+        let restoredDraft = false;
         try {
           const raw = await AsyncStorage.getItem(draftKey);
           if (raw) {
@@ -364,8 +404,15 @@ export default function ManagerSpecScreen() {
             if (d.note)       setNote(d.note);
             if (d.kgQtys)     setKgQtys(d.kgQtys);
             if (d.selectedUnits) setSelectedUnits(current => ({ ...current, ...d.selectedUnits }));
+            restoredDraft = true;
           }
         } catch {}
+        if (!restoredDraft && previousOrder?.items?.length) {
+          const previousState = buildOrderStateFromItems(finalProds, previousOrder.items);
+          setQty(previousState.quantities);
+          setKgQtys(previousState.kgQtys);
+          setSelectedUnits(current => ({ ...current, ...previousState.selectedUnits }));
+        }
       } catch(e) { console.error(e); }
       setLoading(false);
     }
@@ -384,6 +431,14 @@ export default function ManagerSpecScreen() {
   /* ── load last order ── */
   const applyLastOrder = () => {
     if (!lastOrder) return;
+    const previousState = buildOrderStateFromItems(products, lastOrder.items);
+    setQty(previousState.quantities);
+    setKgQtys(previousState.kgQtys);
+    setSelectedUnits(current => ({ ...current, ...previousState.selectedUnits }));
+    setPickerOpen(false);
+    setReviewOpen(false);
+    Alert.alert('Last Order Loaded', `${lastOrder.date} — quantities pre-filled. Adjust as needed.`);
+    return;
     const prodMap = Object.fromEntries(products.map(p=>[p.name, p]));
     const newQty = {};
     lastOrder.items.forEach(it => {
@@ -442,6 +497,31 @@ export default function ManagerSpecScreen() {
   const ordered = products.filter(p =>
     isMeatSpecialProd(p) ? meatTotalKg(p) > 0 : n(quantities[p.id]) > 0
   );
+
+  function removeProduct(product) {
+    if (isMeatSpecialProd(product)) {
+      setKgQtys(current => {
+        const next = { ...current };
+        delete next[product.id];
+        return next;
+      });
+      return;
+    }
+    setQty(current => {
+      const next = { ...current };
+      delete next[product.id];
+      return next;
+    });
+  }
+
+  function openReview() {
+    if (ordered.length === 0) {
+      Alert.alert('Empty Order', 'Add at least one product before review.');
+      return;
+    }
+    setPickerOpen(false);
+    setReviewOpen(true);
+  }
 
   const estimatedCost = ordered.reduce((s,p) => {
     if (isMeatSpecialProd(p)) return s + meatTotalKg(p)*(p.price||fallbackPrice(p));
@@ -560,6 +640,235 @@ export default function ManagerSpecScreen() {
   if (loading) return (
     <SafeAreaView style={s.safe}>
       <View style={s.center}><ActivityIndicator size="large" color={COLORS.primary}/></View>
+    </SafeAreaView>
+  );
+
+  if (reviewOpen) return (
+    <SafeAreaView style={s.safe}>
+      <View style={s.header}>
+        <View style={{flex:1}}>
+          <Text style={s.title}>Review SPEC order</Text>
+          <Text style={s.headerSub}>{branch} · {today}</Text>
+        </View>
+        <TouchableOpacity style={s.lastBtn} onPress={()=>setReviewOpen(false)} activeOpacity={0.8}>
+          <Text style={s.lastBtnTxt}>Edit</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+        <View style={s.reviewHeader}>
+          <Text style={s.reviewTitle}>Check before submit</Text>
+          <Text style={s.reviewSub}>This is what the supplier and owner portal will receive.</Text>
+        </View>
+        <View style={s.reviewStats}>
+          <View style={s.reviewStat}><Text style={s.reviewStatValue}>{ordered.length}</Text><Text style={s.reviewStatLabel}>Items</Text></View>
+          <View style={s.reviewStat}><Text style={s.reviewStatValue}>~{fmtK(estimatedCost)}</Text><Text style={s.reviewStatLabel}>PLN est.</Text></View>
+          <View style={s.reviewStat}><Text style={s.reviewStatValue}>{ordered.reduce((sum,p)=>sum+(isMeatSpecialProd(p)?meatTotalKg(p):0),0)}kg</Text><Text style={s.reviewStatLabel}>Meat</Text></View>
+        </View>
+        <View style={s.summaryCard}>
+          <Text style={s.summaryTitle}>ORDER SUMMARY · {ordered.length} items</Text>
+          {ordered.map(p=>{
+            if (isMeatSpecialProd(p)) {
+              return KG_SIZES.filter(sz=>n((kgQtys[p.id]||{})[sz])>0).map(sz=>(
+                <View key={p.id+sz} style={s.summaryRow}>
+                  <Text style={s.summaryName}>{p.name}</Text>
+                  <Text style={s.summaryQty}>{n((kgQtys[p.id]||{})[sz])} × {sz} = {n((kgQtys[p.id]||{})[sz])*parseInt(sz)}kg</Text>
+                </View>
+              ));
+            }
+            return (
+              <View key={p.id} style={s.summaryRow}>
+                <Text style={s.summaryName}>{p.name}</Text>
+                <Text style={s.summaryQty}>{quantities[p.id]} {(getUnitOptions(p).find(option => option.unit === selectedUnits[p.id]) || getUnitOptions(p)[0]).label}</Text>
+              </View>
+            );
+          })}
+        </View>
+        <View style={s.noteCard}>
+          <Text style={s.noteLabel}>Note to supplier (optional)</Text>
+          <TextInput
+            style={s.noteInput}
+            placeholder="Example: please bring fresh pita, extra sauces..."
+            placeholderTextColor="#bbb"
+            multiline
+            numberOfLines={3}
+            value={note}
+            onChangeText={setNote}
+          />
+        </View>
+        <View style={{height:90}}/>
+      </ScrollView>
+      <View style={s.footer}>
+        <TouchableOpacity style={s.footerSecondaryBtn} onPress={()=>setReviewOpen(false)} activeOpacity={0.85}>
+          <Text style={s.footerSecondaryTxt}>Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.submitBtn, (saving||alreadySubmitted) && {opacity:0.6}]}
+          onPress={handleSubmit}
+          disabled={saving||alreadySubmitted}
+          activeOpacity={0.85}
+        >
+          {saving ? <ActivityIndicator color="#fff" size="small"/> : <Text style={s.submitTxt}>{alreadySubmitted?'Submitted':'Submit Order'}</Text>}
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+
+  if (pickerOpen) return (
+    <SafeAreaView style={s.safe}>
+      <View style={s.header}>
+        <View style={{flex:1}}>
+          <Text style={s.title}>Add product</Text>
+          <Text style={s.headerSub}>{ordered.length} items currently selected</Text>
+        </View>
+        <TouchableOpacity style={s.lastBtn} onPress={()=>setPickerOpen(false)} activeOpacity={0.8}>
+          <Text style={s.lastBtnTxt}>Done</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={s.tabsWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>
+          {cats.map(cat => (
+            <CatTab key={cat} label={cat} active={activeTab===cat} onPress={()=>setActiveTab(cat)} badge={cat==='All'?0:tabBadge(cat)}/>
+          ))}
+        </ScrollView>
+      </View>
+      <View style={s.searchWrap}>
+        <Text style={s.searchIcon}>Search</Text>
+        <TextInput
+          style={s.searchInput}
+          placeholder="Product name..."
+          placeholderTextColor="#bbb"
+          value={search}
+          onChangeText={setSearch}
+          clearButtonMode="while-editing"
+        />
+      </View>
+      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+        {filtered.length === 0 ? (
+          <View style={s.empty}><Text style={s.emptyTxt}>No products found</Text></View>
+        ) : (
+          <View style={s.section}>
+            {filtered.map((p) => {
+              const cat = p.category || p.cat || 'Other';
+              const isMeat = cat.toLowerCase().includes('miÄ™so') || cat.toLowerCase().includes('meat') ||
+                             (p.unit||'').toLowerCase() === 'kg';
+              const lastItem = lastOrder?.items?.find(it=>it.name===p.name);
+              if (isMeatSpecialProd(p)) {
+                const lastTotalKg = lastItem
+                  ? parseFloat(lastItem.totalKg||0) || (parseFloat(lastItem.qty||0)*(parseInt((lastItem.unit||'10kg').replace('kg',''))||10))
+                  : 0;
+                return (
+                  <MeatProductRow key={p.id} product={p} kgQtys={kgQtys[p.id]||{}} onChange={v => setKgQtys(k=>({...k,[p.id]:v}))} lastTotalKg={lastTotalKg} />
+                );
+              }
+              return (
+                <ProductRow
+                  key={p.id}
+                  product={p}
+                  qty={quantities[p.id]||''}
+                  onChange={v => setQty(q=>({...q,[p.id]:v}))}
+                  lastQty={lastItem?.qty}
+                  isMeat={isMeat}
+                  selectedUnit={selectedUnits[p.id] || getUnitOptions(p)[0].unit}
+                  onUnitChange={unit => setSelectedUnits(current => ({ ...current, [p.id]: unit }))}
+                />
+              );
+            })}
+          </View>
+        )}
+        <View style={{height:90}}/>
+      </ScrollView>
+      <View style={s.footer}>
+        <View style={s.footerLeft}>
+          <Text style={s.footerCost}>{ordered.length} items</Text>
+          <Text style={s.footerLabel}>~{fmtK(estimatedCost)} PLN est.</Text>
+        </View>
+        <TouchableOpacity style={s.submitBtn} onPress={()=>setPickerOpen(false)} activeOpacity={0.85}>
+          <Text style={s.submitTxt}>Done</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+
+  return (
+    <SafeAreaView style={s.safe}>
+      <View style={s.header}>
+        <View style={{flex:1}}>
+          <Text style={s.title}>SPEC Order</Text>
+          <View style={{flexDirection:'row',alignItems:'center',gap:8,marginTop:3}}>
+            <Text style={s.headerSub}>{branch} · {today}</Text>
+            {specPct!==null&&(
+              <View style={[s.specPill,{backgroundColor:specPct>15?'#FFEBEE':specPct>10?'#FFF8E1':'#E8F5E9'}]}>
+                <Text style={[s.specPillTxt,{color:specPct>15?COLORS.danger:specPct>10?'#E65100':COLORS.primary}]}>{specPct}% of rev</Text>
+              </View>
+            )}
+          </View>
+        </View>
+        <View style={{gap:4,alignItems:'flex-end'}}>
+          <TouchableOpacity style={[s.lastBtn,{opacity:lastOrder?1:0.3}]} onPress={applyLastOrder} disabled={!lastOrder} activeOpacity={0.7}>
+            <Text style={s.lastBtnTxt}>Last Order</Text>
+          </TouchableOpacity>
+          {alreadySubmitted&&<Text style={{fontSize:10,color:COLORS.primary,fontWeight:'700'}}>Submitted</Text>}
+        </View>
+      </View>
+      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+        <View style={s.cartIntro}>
+          <Text style={s.cartTitle}>Today’s order</Text>
+          <Text style={s.cartSub}>{lastOrder ? `Started from last order: ${lastOrder.date}` : 'Add products to build today’s order.'}</Text>
+        </View>
+        {ordered.length === 0 ? (
+          <View style={s.emptyCart}>
+            <Text style={s.emptyCartIcon}>📦</Text>
+            <Text style={s.emptyCartTitle}>No products selected</Text>
+            <Text style={s.emptyCartText}>Tap Add product to start today’s SPEC order.</Text>
+          </View>
+        ) : (
+          <View style={s.cartList}>
+            {ordered.map(p => {
+              const cat = p.category || p.cat || 'Other';
+              const isMeat = cat.toLowerCase().includes('miÄ™so') || cat.toLowerCase().includes('meat') ||
+                             (p.unit||'').toLowerCase() === 'kg';
+              const lastItem = lastOrder?.items?.find(it=>it.name===p.name);
+              const lastTotalKg = lastItem
+                ? parseFloat(lastItem.totalKg||0) || (parseFloat(lastItem.qty||0)*(parseInt((lastItem.unit||'10kg').replace('kg',''))||10))
+                : 0;
+              return (
+                <View key={p.id} style={s.cartCard}>
+                  <TouchableOpacity style={s.removeItemBtn} onPress={()=>removeProduct(p)} activeOpacity={0.8}>
+                    <Text style={s.removeItemTxt}>Remove</Text>
+                  </TouchableOpacity>
+                  {isMeatSpecialProd(p) ? (
+                    <MeatProductRow product={p} kgQtys={kgQtys[p.id]||{}} onChange={v => setKgQtys(k=>({...k,[p.id]:v}))} lastTotalKg={lastTotalKg} />
+                  ) : (
+                    <ProductRow
+                      product={p}
+                      qty={quantities[p.id]||''}
+                      onChange={v => setQty(q=>({...q,[p.id]:v}))}
+                      lastQty={lastItem?.qty}
+                      isMeat={isMeat}
+                      selectedUnit={selectedUnits[p.id] || getUnitOptions(p)[0].unit}
+                      onUnitChange={unit => setSelectedUnits(current => ({ ...current, [p.id]: unit }))}
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+        <TouchableOpacity style={s.addProductBtn} onPress={()=>setPickerOpen(true)} activeOpacity={0.85}>
+          <Text style={s.addProductTxt}>+ Add product</Text>
+        </TouchableOpacity>
+        <View style={{height:90}}/>
+      </ScrollView>
+      <View style={s.footer}>
+        <View style={s.footerLeft}>
+          <Text style={s.footerCost}>~{fmtK(estimatedCost)} PLN</Text>
+          <Text style={s.footerLabel}>{ordered.length} items est.</Text>
+        </View>
+        <TouchableOpacity style={[s.submitBtn, (saving||alreadySubmitted||ordered.length===0) && {opacity:0.6}]} onPress={openReview} disabled={saving||alreadySubmitted||ordered.length===0} activeOpacity={0.85}>
+          <Text style={s.submitTxt}>{alreadySubmitted?'Submitted':'Review Order'}</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 
@@ -766,6 +1075,26 @@ const s = StyleSheet.create({
   searchInput:      { flex:1, paddingVertical:10, fontSize:13, color:'#222' },
   content:          { padding:14 },
   section:          { backgroundColor:'#fff', borderRadius:14, padding:14, marginBottom:12 },
+  cartIntro:        { backgroundColor:'#fff', borderRadius:14, padding:16, marginBottom:12, borderLeftWidth:4, borderLeftColor:COLORS.primary },
+  cartTitle:        { fontSize:18, fontWeight:'900', color:'#222' },
+  cartSub:          { fontSize:12, color:'#777', marginTop:4, lineHeight:17 },
+  emptyCart:        { backgroundColor:'#fff', borderRadius:16, padding:26, alignItems:'center', marginBottom:12, borderWidth:1, borderColor:'#E9ECEF' },
+  emptyCartIcon:    { fontSize:38, marginBottom:8 },
+  emptyCartTitle:   { fontSize:16, fontWeight:'900', color:'#222' },
+  emptyCartText:    { fontSize:12, color:'#777', textAlign:'center', marginTop:5 },
+  cartList:         { gap:10, marginBottom:12 },
+  cartCard:         { backgroundColor:'#fff', borderRadius:16, padding:10, borderWidth:1, borderColor:'#E5E7EB', shadowColor:'#000', shadowOpacity:0.04, shadowRadius:4, elevation:1 },
+  removeItemBtn:    { alignSelf:'flex-end', backgroundColor:'#FFEBEE', borderRadius:999, paddingHorizontal:10, paddingVertical:5, marginBottom:4 },
+  removeItemTxt:    { color:COLORS.danger, fontSize:11, fontWeight:'900' },
+  addProductBtn:    { backgroundColor:'#fff', borderRadius:14, borderWidth:1.5, borderColor:COLORS.primary, borderStyle:'dashed', padding:16, alignItems:'center', marginBottom:12 },
+  addProductTxt:    { color:COLORS.primary, fontSize:15, fontWeight:'900' },
+  reviewHeader:     { backgroundColor:'#fff', borderRadius:14, padding:16, marginBottom:12 },
+  reviewTitle:      { fontSize:18, fontWeight:'900', color:'#222' },
+  reviewSub:        { fontSize:12, color:'#777', marginTop:4, lineHeight:17 },
+  reviewStats:      { flexDirection:'row', gap:8, marginBottom:12 },
+  reviewStat:       { flex:1, backgroundColor:'#fff', borderRadius:13, padding:12, alignItems:'center', borderWidth:1, borderColor:'#E5E7EB' },
+  reviewStatValue:  { fontSize:17, fontWeight:'900', color:COLORS.primary },
+  reviewStatLabel:  { fontSize:10, color:'#777', marginTop:2, fontWeight:'700' },
   rowWithMove:      { flexDirection:'row', alignItems:'center' },
   moveCol:          { width:24, alignItems:'center', justifyContent:'center', gap:4, paddingLeft:6, borderLeftWidth:1, borderLeftColor:'#F0F0F0', marginLeft:6, alignSelf:'stretch', paddingVertical:4 },
   moveBtn:          { padding:2 },
@@ -785,6 +1114,8 @@ const s = StyleSheet.create({
   footerLeft:       { flex:1 },
   footerCost:       { fontSize:18, fontWeight:'900', color:'#fff' },
   footerLabel:      { fontSize:10, color:'rgba(255,255,255,0.5)', marginTop:1 },
+  footerSecondaryBtn:{ backgroundColor:'rgba(255,255,255,0.12)', borderRadius:12, paddingHorizontal:18, paddingVertical:13 },
+  footerSecondaryTxt:{ color:'#fff', fontWeight:'900', fontSize:13 },
   submitBtn:        { backgroundColor:COLORS.primary, borderRadius:12, paddingHorizontal:20, paddingVertical:13 },
   submitTxt:        { color:'#fff', fontWeight:'900', fontSize:13 },
   successHeader:    { backgroundColor:COLORS.primary, padding:30, alignItems:'center' },

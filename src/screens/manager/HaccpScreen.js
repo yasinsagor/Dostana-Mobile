@@ -173,6 +173,7 @@ function compliantTemperature(reading, item) {
 export default function HaccpScreen() {
   const { user } = useAuth();
   const recordScrollRef = useRef(null);
+  const submittedByRef = useRef(null);
   const branch = user?.branch || '';
   const [mode, setMode] = useState('record');
   const [type, setType] = useState('temperature');
@@ -184,6 +185,7 @@ export default function HaccpScreen() {
 
   const [selectedEquipmentId, setSelectedEquipmentId] = useState(null);
   const [submittedBy, setSubmittedBy] = useState('');
+  const [submittedByError, setSubmittedByError] = useState(false);
   const [subject, setSubject] = useState('');
   const [reading, setReading] = useState('');
   const [manualCompliant, setManualCompliant] = useState(true);
@@ -315,7 +317,12 @@ export default function HaccpScreen() {
   async function submitRecord() {
     const person = submittedBy.trim();
     const itemName = subject.trim();
-    if (!person) return Alert.alert('Name required', 'Enter manager name or initials.');
+    if (!person) {
+      setSubmittedByError(true);
+      recordScrollRef.current?.scrollToEnd?.({ animated: true });
+      setTimeout(() => submittedByRef.current?.focus?.(), 250);
+      return Alert.alert('Name required', 'Enter manager name or initials in the Signed by field above the green save button.');
+    }
     if (!itemName) return Alert.alert('Subject required', 'Select configured equipment or enter the subject.');
     if (equipmentForType.length && !selectedEquipment) return Alert.alert('Select setup item', 'Choose the fridge, freezer, room, tool or pest area for this check.');
     if (isTemperature && numericReading == null) return Alert.alert('Temperature required', 'Enter a valid measured temperature.');
@@ -349,6 +356,7 @@ export default function HaccpScreen() {
         },
         source: 'mobile',
       });
+      setSubmittedByError(false);
       Alert.alert('Saved', 'This HACCP/GMP record is saved and visible in the web portal.');
       resetRecord();
       await loadData();
@@ -429,7 +437,6 @@ export default function HaccpScreen() {
                 )}
 
                 <View style={styles.card}>
-                  <Field label="Completed by / initials" value={submittedBy} onChangeText={setSubmittedBy} placeholder="Manager name or initials" />
                   <Field label={isTemperature ? 'Equipment / food' : 'Subject'} value={subject} onChangeText={setSubject} placeholder="Select above or type subject" />
 
                   {isTemperature ? (
@@ -469,6 +476,27 @@ export default function HaccpScreen() {
                     </>
                   )}
                   <Field label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="Extra details for inspection record" multiline />
+                </View>
+
+                <View style={[styles.signatureCard, submittedByError && styles.signatureCardError]}>
+                  <View style={styles.signatureHeader}>
+                    <Text style={styles.signatureTitle}>Manager signature</Text>
+                    <Text style={styles.requiredPill}>Required</Text>
+                  </View>
+                  <Text style={styles.signatureHelp}>Type the manager name or initials before saving this HACCP/GMP record.</Text>
+                  <TextInput
+                    ref={submittedByRef}
+                    style={[styles.signatureInput, submittedByError && styles.inputError]}
+                    value={submittedBy}
+                    onChangeText={(text) => {
+                      setSubmittedBy(text);
+                      if (text.trim()) setSubmittedByError(false);
+                    }}
+                    placeholder="Example: Shamim"
+                    placeholderTextColor="#AAB4AD"
+                    returnKeyType="done"
+                  />
+                  {submittedByError && <Text style={styles.errorText}>Manager name or initials is required.</Text>}
                 </View>
 
                 <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.65 }]} onPress={submitRecord} disabled={saving} activeOpacity={0.8}>
@@ -661,6 +689,15 @@ const styles = StyleSheet.create({
   resultButtonBad: { backgroundColor: '#B42318', borderColor: '#B42318' },
   resultButtonText: { color: '#526159', fontSize: 12, fontWeight: '900' },
   resultButtonTextActive: { color: '#fff' },
+  signatureCard: { backgroundColor: '#F8FBF9', borderWidth: 1.5, borderColor: '#B8CDBE', borderRadius: 16, padding: 15, gap: 9 },
+  signatureCardError: { backgroundColor: '#FFF5F5', borderColor: '#B42318' },
+  signatureHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  signatureTitle: { color: '#17251B', fontSize: 15, fontWeight: '900' },
+  signatureHelp: { color: '#526159', fontSize: 12, lineHeight: 17 },
+  requiredPill: { backgroundColor: '#E8F5EC', color: '#14532D', borderRadius: 999, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 4, fontSize: 10, fontWeight: '900' },
+  signatureInput: { borderWidth: 1.5, borderColor: '#DDE5DF', borderRadius: 12, backgroundColor: '#fff', paddingHorizontal: 14, minHeight: 50, color: '#17251B', fontSize: 16, fontWeight: '800' },
+  inputError: { borderColor: '#B42318' },
+  errorText: { color: '#B42318', fontSize: 11, fontWeight: '800' },
   saveButton: { backgroundColor: '#15803D', minHeight: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   saveText: { color: '#fff', fontSize: 14, fontWeight: '900' },
   groupGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
