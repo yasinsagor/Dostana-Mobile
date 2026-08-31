@@ -9,6 +9,7 @@ import OwnerCashflowScreen     from '../screens/owner/CashflowScreen';
 import OwnerOperationsScreen   from '../screens/owner/OperationsScreen';
 import OwnerSettingsScreen     from '../screens/owner/SettingsScreen';
 import OwnerReportsScreen      from '../screens/owner/ReportsScreen';
+import LegalDocumentsScreen    from '../screens/shared/LegalDocumentsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -18,6 +19,7 @@ const tabs = [
   { name: 'SPEC',       component: OwnerSpecScreen,        icon: '📦' },
   { name: 'Cash Flow',  component: OwnerCashflowScreen,    icon: '💰' },
   { name: 'Operations', component: OwnerOperationsScreen,  icon: '🛠' },
+  { name: 'Legal Docs', component: LegalDocumentsScreen,    icon: '🛂' },
   { name: 'Settings',   component: OwnerSettingsScreen,    icon: '⚙️' },
 ];
 
