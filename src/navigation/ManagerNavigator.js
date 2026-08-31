@@ -10,6 +10,7 @@ import ManagerMyDataScreen   from '../screens/manager/MyDataScreen';
 import ManagerScheduleScreen from '../screens/manager/ScheduleScreen';
 import ManagerSettingsScreen from '../screens/manager/SettingsScreen';
 import ManagerHaccpScreen    from '../screens/manager/HaccpScreen';
+import LegalDocumentsScreen    from '../screens/shared/LegalDocumentsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -19,6 +20,7 @@ const tabs = [
   { name: 'My Data',    component: ManagerMyDataScreen,   icon: '📊' },
   { name: 'HACCP',      component: ManagerHaccpScreen,    icon: '🛡️' },
   { name: 'Schedule',   component: ManagerScheduleScreen, icon: '📅' },
+  { name: 'Legal Docs', component: LegalDocumentsScreen,    icon: '🛂' },
   { name: 'Settings',   component: ManagerSettingsScreen, icon: '⚙️' },
 ];
 
