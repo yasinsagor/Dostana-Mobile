@@ -10,6 +10,33 @@ import { COLORS } from '../../constants';
 
 function fmt(n){ if(!n) return '0'; if(Math.abs(n)>=1000) return (n/1000).toFixed(1)+'k'; return Math.round(n).toString(); }
 
+function orderItems(rawItems) {
+  if (typeof rawItems === 'string') {
+    try { return JSON.parse(rawItems); } catch { return []; }
+  }
+  return Array.isArray(rawItems) ? rawItems : [];
+}
+
+function isWeightedMeat(item) {
+  return /kurczak|chicken|baranina|lamb/i.test(item?.name || '');
+}
+
+function itemKg(item) {
+  const recordedKg = Number(item?.totalKg || 0);
+  if (recordedKg > 0) return recordedKg;
+  const unit = String(item?.unit || '').toLowerCase();
+  const packageKg = Number.parseFloat(unit.replace('kg', ''));
+  return isWeightedMeat(item) && unit.includes('kg') && packageKg > 0
+    ? Number(item?.qty || 0) * packageKg
+    : 0;
+}
+
+function formatItemQuantity(item) {
+  const kg = itemKg(item);
+  if (kg > 0) return `${kg.toLocaleString('pl-PL')} kg`;
+  return `${Number(item?.qty || 0).toLocaleString('pl-PL')} ${item?.unit || 'szt'}`;
+}
+
 const TABS = ['Daily', 'Cash Flow', 'SPEC'];
 
 export default function ManagerHistoryScreen() {
@@ -136,32 +163,39 @@ export default function ManagerHistoryScreen() {
         {tab === 'SPEC' && (
           spec.length === 0
             ? <View style={s.empty}><Text style={s.emptyTxt}>No SPEC orders found</Text></View>
-            : spec.map((o, idx) => (
+            : spec.map((o, idx) => {
+              const items = orderItems(o.items);
+              const chickenKg = items.filter(it => /kurczak|chicken/i.test(it.name || '')).reduce((sum, it) => sum + itemKg(it), 0);
+              const dayReport = daily.find(report => report.date === o.date);
+              const daySales = Number(dayReport?.total_revenue || dayReport?.revenue || 0);
+              return (
               <TouchableOpacity key={o.id||idx} style={[s.card, {borderLeftColor:COLORS.purple}]} onPress={() => setExpanded(e => ({...e, ['sp'+(o.id||idx)]: !e['sp'+(o.id||idx)]}))}>
                 <View style={s.cardHeader}>
                   <View style={s.cardInfo}>
                     <Text style={s.cardDate}>{o.date}</Text>
-                    <Text style={s.cardSub}>{(o.items||[]).length} items</Text>
+                    <Text style={s.cardSub}>{items.length} items</Text>
                   </View>
                   <View style={s.cardRight}>
                     <Text style={[s.cardRev, {color:COLORS.purple}]}>
-                      {Math.round((o.items||[]).reduce((s,it)=>s+parseFloat(it.qty||0),0))} units
+                      Kurczak: {chickenKg.toLocaleString('pl-PL')} kg
                     </Text>
+                    <Text style={s.cardSub}>Sales: {fmt(daySales)} PLN</Text>
                   </View>
                   <Text style={s.chevron}>{expanded['sp'+(o.id||idx)]?'▲':'▼'}</Text>
                 </View>
                 {expanded['sp'+(o.id||idx)] && (
                   <View style={s.detail}>
-                    {(o.items||[]).map((it,i) => (
+                    {items.map((it,i) => (
                       <View key={i} style={s.detailRow}>
                         <Text style={s.detailLbl}>{it.name}</Text>
-                        <Text style={[s.detailVal, {color:COLORS.purple}]}>{it.qty} {it.unit||'kg'}</Text>
+                        <Text style={[s.detailVal, {color:COLORS.purple}]}>{formatItemQuantity(it)}</Text>
                       </View>
                     ))}
                   </View>
                 )}
               </TouchableOpacity>
-            ))
+              );
+            })
         )}
 
         <Text style={s.pullHint}>Pull down to refresh · Tap to expand</Text>
