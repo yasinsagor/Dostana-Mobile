@@ -18,22 +18,24 @@ function orderItems(rawItems) {
 }
 
 function isWeightedMeat(item) {
-  return /kurczak|chicken|baranina|lamb/i.test(item?.name || '');
+  return /^(kurczak|baranina)$/i.test(String(item?.name || '').trim());
 }
 
 function itemKg(item) {
-  const recordedKg = Number(item?.totalKg || 0);
-  if (recordedKg > 0) return recordedKg;
+  if (!isWeightedMeat(item)) return 0;
   const unit = String(item?.unit || '').toLowerCase();
-  const packageKg = Number.parseFloat(unit.replace('kg', ''));
-  return isWeightedMeat(item) && unit.includes('kg') && packageKg > 0
-    ? Number(item?.qty || 0) * packageKg
-    : 0;
+  const packageKg = Number.parseFloat(unit);
+  if (unit.includes('kg') && packageKg > 0) return Number(item?.qty || 0) * packageKg;
+  return Number(item?.totalKg || 0);
 }
 
 function formatItemQuantity(item) {
   const kg = itemKg(item);
-  if (kg > 0) return `${kg.toLocaleString('pl-PL')} kg`;
+  if (kg > 0) {
+    const packageKg = Number.parseFloat(String(item?.unit || ''));
+    if (packageKg > 0) return `${Number(item?.qty || 0).toLocaleString('pl-PL')} × ${packageKg.toLocaleString('pl-PL')} kg = ${kg.toLocaleString('pl-PL')} kg`;
+    return `${kg.toLocaleString('pl-PL')} kg`;
+  }
   return `${Number(item?.qty || 0).toLocaleString('pl-PL')} ${item?.unit || 'szt'}`;
 }
 
@@ -165,7 +167,7 @@ export default function ManagerHistoryScreen() {
             ? <View style={s.empty}><Text style={s.emptyTxt}>No SPEC orders found</Text></View>
             : spec.map((o, idx) => {
               const items = orderItems(o.items);
-              const chickenKg = items.filter(it => /kurczak|chicken/i.test(it.name || '')).reduce((sum, it) => sum + itemKg(it), 0);
+              const chickenKg = items.filter(it => /^kurczak$/i.test(String(it.name || '').trim())).reduce((sum, it) => sum + itemKg(it), 0);
               const dayReport = daily.find(report => report.date === o.date);
               const daySales = Number(dayReport?.total_revenue || dayReport?.revenue || 0);
               return (
