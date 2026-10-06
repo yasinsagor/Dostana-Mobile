@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, Alert, KeyboardAvoidingView, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +19,7 @@ export default function ManagerOrderAssistantScreen({ onReviewOrder }) {
   const { user } = useAuth();
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sessionPin, setSessionPin] = useState('');
   const [messages, setMessages] = useState([
     { role: 'assistant', text: 'Tell me what you need. I will use recent GoPOS sales and the SPEC catalogue to prepare a draft order for your review.' },
   ]);
@@ -30,8 +31,9 @@ export default function ManagerOrderAssistantScreen({ onReviewOrder }) {
   async function send(text = input) {
     const prompt = String(text || '').trim();
     if (!prompt || busy) return;
-    if (!user?.sessionPin) {
-      Alert.alert('Sign in again', 'Log out and sign in with the branch PIN once to activate the AI Assistant securely.');
+    const pin = user?.sessionPin || sessionPin.trim();
+    if (!pin) {
+      Alert.alert('Branch PIN required', 'Enter your branch PIN above the message box to activate your existing session.');
       return;
     }
     const userMessage = { role: 'user', text: prompt };
@@ -44,7 +46,7 @@ export default function ManagerOrderAssistantScreen({ onReviewOrder }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           branch: user.branch,
-          pin: user.sessionPin,
+          pin,
           message: prompt,
           conversation: [...recentConversation, userMessage],
         }),
@@ -68,7 +70,7 @@ export default function ManagerOrderAssistantScreen({ onReviewOrder }) {
 
   return (
     <SafeAreaView style={s.safe} edges={['bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView style={s.scroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
           <View style={s.pilot}><Text style={s.pilotText}>✨ Łopuszańska trial · AI creates a draft only</Text></View>
           {messages.map((message, index) => (
@@ -92,6 +94,10 @@ export default function ManagerOrderAssistantScreen({ onReviewOrder }) {
           ) : null}
           {messages.length === 1 && <View style={s.starters}>{STARTERS.map(starter => <TouchableOpacity key={starter} style={s.starter} onPress={() => send(starter)}><Text style={s.starterText}>{starter}</Text></TouchableOpacity>)}</View>}
         </ScrollView>
+        {!user?.sessionPin && <View style={{ padding: 10, backgroundColor: '#fff' }}>
+          <Text style={s.aiText}>Enter your branch PIN to activate messaging</Text>
+          <TextInput value={sessionPin} onChangeText={setSessionPin} secureTextEntry keyboardType="number-pad" maxLength={40} placeholder="Branch PIN" style={[s.input, { flex: 0, marginTop: 6 }]} />
+        </View>}
         <View style={s.composer}>
           <TextInput value={input} onChangeText={setInput} editable={!busy} multiline maxLength={600} placeholder="e.g. Order for the weekend, we still have 2 oils…" style={s.input}/>
           <TouchableOpacity disabled={!canSend} onPress={() => send()} style={[s.send, !canSend && s.sendDisabled]}><Text style={s.sendText}>Send</Text></TouchableOpacity>
