@@ -60,7 +60,9 @@ export function AuthProvider({ children }) {
     }
     const branch = BRANCHES.find(b => b.pin === pin);
     if (branch) {
-      const u = { role: ROLES.MANAGER, branch: branch.name, name: branch.name };
+      // The PIN is forwarded only to protected mobile backend functions so they
+      // can re-authorize the branch. It is never sent to OpenAI or GoPOS.
+      const u = { role: ROLES.MANAGER, branch: branch.name, name: branch.name, sessionPin: pin };
       setUser(u);
       AsyncStorage.setItem('dostana_user', JSON.stringify(u));
       return { ok: true };

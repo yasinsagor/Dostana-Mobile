@@ -311,7 +311,7 @@ const pr = StyleSheet.create({
 });
 
 /* ════════════════════════════════════════════════════════════ */
-export default function ManagerSpecScreen() {
+export default function ManagerSpecScreen({ initialDraft }) {
   const { user } = useAuth();
   const branch  = user?.branch || '';
   const today   = todayStr();
@@ -338,6 +338,21 @@ export default function ManagerSpecScreen() {
   const [newProduct, setNewProduct] = useState({ name: '', unit: '', cat: 'MiÄ™so', price: '' });
   const [addingProduct, setAddingProduct] = useState(false);
   const autoSaveTimer = useRef(null);
+
+  useEffect(() => {
+    if (!initialDraft?.items?.length || !products.length) return;
+    const next = buildOrderStateFromItems(products, initialDraft.items.map(item => ({
+      id: item.product_id || item.id,
+      name: item.name,
+      qty: item.qty,
+      unit: item.unit,
+    })));
+    setQty(next.quantities);
+    setKgQtys(next.kgQtys);
+    setSelectedUnits(current => ({ ...current, ...next.selectedUnits }));
+    setNote(initialDraft.note || 'Draft prepared by AI Assistant. Review quantities before submitting.');
+    setReviewOpen(true);
+  }, [initialDraft?.nonce, products]);
 
   /* ── init ── */
   useEffect(() => {
