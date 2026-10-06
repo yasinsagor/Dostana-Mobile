@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, ScrollView } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/hooks/useAuth';
 import RootNavigator from './src/navigation/RootNavigator';
+import { ensureOperationalReminders } from './src/lib/reminders';
 
 class ErrorBoundary extends React.Component {
   state = { error: null };
@@ -31,6 +32,7 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App() {
+  useEffect(() => { ensureOperationalReminders().catch(() => {}); }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

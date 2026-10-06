@@ -6,8 +6,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase, fetchDailyReports, fetchCashflowReports, fetchSpecOrders } from '../../lib/supabase';
+import { supabase, fetchDailyReports, fetchCashflowReports, fetchSpecOrders, fetchHaccpCompletion } from '../../lib/supabase';
 import { COLORS } from '../../constants';
+import { flushSyncQueue, getSyncState } from '../../lib/syncQueue';
 
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function yesterdayStr() { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
@@ -20,11 +21,11 @@ function dayName(iso) {
 }
 
 /* ─── status badge ──────────────────────────────────────────── */
-function StatusBadge({ label, done }) {
+function StatusBadge({ label, done, due=true }) {
   return (
-    <View style={[sb.wrap, done ? sb.done : sb.pending]}>
-      <Text style={sb.icon}>{done ? '✅' : '❌'}</Text>
-      <Text style={[sb.txt, { color: done ? '#2E7D32' : '#C62828' }]}>{label}</Text>
+    <View style={[sb.wrap, done ? sb.done : due ? sb.pending : sb.notDue]}>
+      <Text style={sb.icon}>{done ? '✅' : due ? '⚠️' : '○'}</Text>
+      <Text style={[sb.txt, { color: done ? '#2E7D32' : due ? '#C62828' : '#667085' }]}>{label}</Text>
     </View>
   );
 }
@@ -32,6 +33,7 @@ const sb = StyleSheet.create({
   wrap:    { flexDirection:'row', alignItems:'center', paddingHorizontal:12, paddingVertical:8, borderRadius:10, gap:6, flex:1, margin:3 },
   done:    { backgroundColor:'#E8F5E9', borderWidth:1, borderColor:'#A5D6A7' },
   pending: { backgroundColor:'#FFEBEE', borderWidth:1, borderColor:'#EF9A9A' },
+  notDue:  { backgroundColor:'#F2F4F7', borderWidth:1, borderColor:'#D0D5DD' },
   icon:    { fontSize:14 },
   txt:     { fontSize:12, fontWeight:'700' },
 });
@@ -86,28 +88,47 @@ export default function ManagerHomeScreen() {
   const [daily,   setDaily]     = useState([]);
   const [cf,      setCf]        = useState([]);
   const [spec,    setSpec]      = useState([]);
+  const [haccp,   setHaccp]     = useState([]);
   const [note,    setNote]      = useState('');
   const [notes,   setNotes]     = useState([]);
   const [saving,  setSaving]    = useState(false);
+  const [syncState, setSyncState] = useState({pending:0,lastSync:null});
 
   const load = useCallback(async () => {
     try {
       const from = daysAgoStr(13);
       const to   = todayStr();
-      const [d, c, s] = await Promise.all([
+      const [d, c, s, h] = await Promise.all([
         fetchDailyReports(branch, from, to),
         fetchCashflowReports(branch, from, to),
         fetchSpecOrders(branch, from, to),
+        fetchHaccpCompletion(branch, todayStr()).catch(()=>[]),
       ]);
       setDaily(d  || []);
       setCf(c    || []);
       setSpec(s  || []);
+      setHaccp(h || []);
     } catch(e) { console.error(e); }
     setLoading(false);
     setRefresh(false);
   }, [branch]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const result = await flushSyncQueue();
+        if (active) setSyncState(result);
+        if (result.synced) load();
+      } catch { if (active) setSyncState(await getSyncState()); }
+    })();
+    const channel = supabase.channel(`manager-live-${branch}`)
+      .on('postgres_changes', {event:'*',schema:'public',table:'daily_reports',filter:`branch=eq.${branch}`}, load)
+      .on('postgres_changes', {event:'*',schema:'public',table:'spec_orders',filter:`branch=eq.${branch}`}, load)
+      .subscribe();
+    return () => { active=false; supabase.removeChannel(channel); };
+  }, [branch, load]);
 
   const today     = todayStr();
   const yesterday = yesterdayStr();
@@ -116,6 +137,8 @@ export default function ManagerHomeScreen() {
   const todayDR   = daily.find(r => r.date === today);
   const todayCF   = cf.find(r   => r.date === today);
   const todaySPEC = spec.find(r  => r.date === today);
+  const haccpDone = haccp.length > 0 && haccp.every(item => item.is_complete);
+  const afterClose = new Date().getHours() >= 20;
 
   const todayRev     = todayDR?.total_revenue || todayDR?.revenue || 0;
   const todayHours   = todayDR?.working_hours || 0;
@@ -161,19 +184,20 @@ export default function ManagerHomeScreen() {
     </SafeAreaView>
   );
 
-  const allDone = !!(todayDR && todayCF && todaySPEC);
+  const allDone = !!(todayDR && todaySPEC && haccpDone);
+  const actionRequired = afterClose && !allDone;
 
   return (
     <SafeAreaView style={s.safe}>
       {/* Header */}
-      <View style={[s.header, { backgroundColor: allDone ? '#2E7D32' : COLORS.primary }]}>
+      <View style={[s.header, { backgroundColor: allDone ? '#2E7D32' : actionRequired ? COLORS.danger : COLORS.primary }]}>
         <View style={{flex:1}}>
           <Text style={s.headerTitle}>👨‍🍳 {branch}</Text>
           <Text style={s.headerSub}>{new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</Text>
         </View>
         <View style={[s.statusPill, { backgroundColor: allDone ? '#fff' : 'rgba(255,255,255,0.25)' }]}>
           <Text style={[s.statusPillTxt, { color: allDone ? '#2E7D32' : '#fff' }]}>
-            {allDone ? '✅ All Done' : '⚠️ Pending'}
+            {allDone ? '✅ All Done' : actionRequired ? '⚠️ Action needed' : 'Today in progress'}
           </Text>
         </View>
       </View>
@@ -182,23 +206,22 @@ export default function ManagerHomeScreen() {
         contentContainerStyle={s.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary}/>}
       >
+        <Text style={s.syncLine}>{syncState.pending ? `${syncState.pending} change(s) waiting to sync` : `Last synchronized ${syncState.lastSync ? new Date(syncState.lastSync).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : 'just now'}`}</Text>
 
         {/* ── 1. DAILY CHECKLIST ──────────────────────────── */}
         <Card>
-          <Text style={s.cardTitle}>🚨 Today's Checklist</Text>
+          <Text style={s.cardTitle}>Today's Checklist</Text>
           <View style={{ flexDirection:'row', flexWrap:'wrap', marginTop:4 }}>
-            <StatusBadge label="Daily Report"  done={!!todayDR}   />
-            <StatusBadge label="Cash Flow"     done={!!todayCF}   />
-            <StatusBadge label="SPEC Order"    done={!!todaySPEC} />
-            <StatusBadge label="Hours Logged"  done={todayHours>0}/>
+            <StatusBadge label="Daily report" done={!!todayDR} due={afterClose} />
+            <StatusBadge label="HACCP" done={haccpDone} due={afterClose} />
+            <StatusBadge label="SPEC order" done={!!todaySPEC} due={afterClose} />
+            <StatusBadge label="Tasks" done={false} due={false} />
           </View>
-          {!allDone && (
+          {actionRequired ? (
             <View style={s.alertBanner}>
-              <Text style={s.alertTxt}>
-                {[!todayDR&&'Daily Report',!todayCF&&'Cash Flow',!todaySPEC&&'SPEC Order'].filter(Boolean).join(' · ')} still pending
-              </Text>
+              <Text style={s.alertTxt}>{[!todayDR&&'Daily report',!haccpDone&&'HACCP',!todaySPEC&&'SPEC order'].filter(Boolean).join(' · ')} overdue after closing</Text>
             </View>
-          )}
+          ) : !allDone ? <Text style={s.progressHint}>Items are not overdue until closing time (20:00).</Text> : null}
         </Card>
 
         {/* ── 2. TODAY PERFORMANCE ────────────────────────── */}
@@ -388,6 +411,7 @@ export default function ManagerHomeScreen() {
 
 /* ─── styles ─────────────────────────────────────────────────── */
 const s = StyleSheet.create({
+  syncLine:       { fontSize:10, color:'#667085', textAlign:'right', marginBottom:6, paddingHorizontal:2 },
   safe:           { flex:1, backgroundColor:'#F4F6F8' },
   center:         { flex:1, justifyContent:'center', alignItems:'center' },
   header:         { paddingHorizontal:20, paddingTop:16, paddingBottom:18, flexDirection:'row', alignItems:'center' },
@@ -399,6 +423,7 @@ const s = StyleSheet.create({
   cardTitle:      { fontSize:14, fontWeight:'800', color:'#222', marginBottom:2 },
   alertBanner:    { marginTop:10, backgroundColor:'#FFF3E0', borderRadius:8, padding:10, borderLeftWidth:3, borderLeftColor:'#F9A825' },
   alertTxt:       { fontSize:12, color:'#E65100', fontWeight:'700' },
+  progressHint:   { fontSize:11, color:'#667085', marginTop:8, textAlign:'center' },
   specDone:       { backgroundColor:'#E8F5E9', borderRadius:10, padding:12, marginTop:8 },
   specDoneTxt:    { fontSize:13, color:'#2E7D32', fontWeight:'700' },
   specPending:    { backgroundColor:'#FFEBEE', borderRadius:10, padding:12, marginTop:8 },

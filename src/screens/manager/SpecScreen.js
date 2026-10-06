@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase, fetchSpecProducts, insertSpecOrder } from '../../lib/supabase';
 import { COLORS } from '../../constants';
 import { FALLBACK_PRODUCTS } from '../../lib/products';
+import { queueMutation } from '../../lib/syncQueue';
 
 /* ─── helpers ─────────────────────────────────────────────── */
 function todayStr() { return new Date().toISOString().slice(0,10); }
@@ -646,6 +647,7 @@ export default function ManagerSpecScreen() {
 
   async function doSubmit() {
     setSaving(true);
+    let orderPayload = null;
     try {
       const items = [];
       ordered.forEach(p => {
@@ -678,15 +680,26 @@ export default function ManagerSpecScreen() {
           });
         }
       });
-      await insertSpecOrder({
+      const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const value = Math.random() * 16 | 0;
+        return (c === 'x' ? value : (value & 0x3 | 0x8)).toString(16);
+      });
+      orderPayload = {
+        id,
         branch, date:today, items,
         supplier_note:  note || null,
         submitted_at:   new Date().toISOString(),
-      });
+      };
+      await insertSpecOrder(orderPayload);
       await AsyncStorage.removeItem(draftKey);
       setSubmitted(true);
     } catch(e) {
-      Alert.alert('Error', e.message || 'Submission failed. Try again.');
+      if (orderPayload) {
+        await queueMutation('spec_order', orderPayload, `spec:${branch}:${today}`);
+        await AsyncStorage.removeItem(draftKey);
+        setSubmitted(true);
+        Alert.alert('Saved offline', 'The order is queued and will synchronize automatically.');
+      } else Alert.alert('Error', e.message || 'Submission failed. Try again.');
     }
     setSaving(false);
   }

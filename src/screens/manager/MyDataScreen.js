@@ -104,6 +104,10 @@ function trendArrow(p) {
 }
 const DELIVERY_KEYS = ['wolt', 'glovo', 'uber_eats', 'bolt', 'pyszne'];
 const DELIVERY_LABELS = { wolt: 'Wolt', glovo: 'Glovo', uber_eats: 'Uber', bolt: 'Bolt', pyszne: 'Pyszne' };
+function canonicalWorkerName(worker) {
+  const cleaned = String(worker?.name || 'Unassigned').trim().replace(/\s+/g, ' ');
+  return cleaned.split(' ').map(part => part ? part[0].toLocaleUpperCase() + part.slice(1).toLocaleLowerCase() : '').join(' ');
+}
 
 function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
   const [rows, setRows] = useState([]);
@@ -143,7 +147,7 @@ function SafeMyDataFallback({ branch, error, onRetry, compactOnly = false }) {
   visibleRows.forEach(row => {
     const workers = Array.isArray(row.worker_hours) ? row.worker_hours : [];
     workers.forEach(worker => {
-      const name = String(worker?.name || 'Unassigned');
+      const name = canonicalWorkerName(worker);
       staff[name] = (staff[name] || 0) + Number(worker?.hours || 0);
     });
   });
@@ -563,7 +567,7 @@ function ManagerMyDataContent({ deferHeavy = false }) {
       lines.push(`Revenue/Hour  : ${fmtK(revPerHr)} PLN`);
       lines.push(`Est. Labor    : ${fmtK(totalHrs*22)} PLN  (22 PLN/hr)`);
       const people = {};
-      filtDr.forEach(r => (Array.isArray(r.worker_hours)?r.worker_hours:[]).forEach(w => { const name=String(w.name||'Unassigned'); people[name]=(people[name]||0)+Number(w.hours||0); }));
+      filtDr.forEach(r => (Array.isArray(r.worker_hours)?r.worker_hours:[]).forEach(w => { const name=canonicalWorkerName(w); people[name]=(people[name]||0)+Number(w.hours||0); }));
       lines.push('');
       lines.push('EMPLOYEE TOTALS');
       Object.entries(people).sort((a,b)=>b[1]-a[1]).forEach(([name,hours]) => lines.push(`${col(name,22)} ${rgt(hours+'h',8)}`));
@@ -836,7 +840,7 @@ function ManagerMyDataContent({ deferHeavy = false }) {
   dr.forEach(report => {
     const workers = Array.isArray(report.worker_hours) ? report.worker_hours : [];
     workers.forEach(worker => {
-      const name = String(worker?.name || 'Unassigned');
+      const name = canonicalWorkerName(worker);
       staffTotals[name] = (staffTotals[name] || 0) + Number(worker?.hours || 0);
     });
   });

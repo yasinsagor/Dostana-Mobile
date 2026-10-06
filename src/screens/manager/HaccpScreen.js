@@ -21,6 +21,7 @@ import {
   insertHaccpEntry,
   saveHaccpEquipment,
 } from '../../lib/supabase';
+import { queueMutation } from '../../lib/syncQueue';
 import { COLORS } from '../../constants';
 
 const REGISTER_TYPES = [
@@ -332,8 +333,12 @@ export default function HaccpScreen() {
     }
 
     setSaving(true);
-    try {
-      await insertHaccpEntry({
+    const entryId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const value = Math.random() * 16 | 0;
+      return (c === 'x' ? value : (value & 0x3 | 0x8)).toString(16);
+    });
+    const entry = {
+        id: entryId,
         branch,
         register_type: type,
         instruction_code: activeInstruction?.code || type,
@@ -355,13 +360,17 @@ export default function HaccpScreen() {
           instruction_title: activeInstruction?.title || null,
         },
         source: 'mobile',
-      });
+      };
+    try {
+      await insertHaccpEntry(entry);
       setSubmittedByError(false);
       Alert.alert('Saved', 'This HACCP/GMP record is saved and visible in the web portal.');
       resetRecord();
       await loadData();
     } catch (error) {
-      Alert.alert('Could not save', error?.message || 'Check connection and try again.');
+      await queueMutation('haccp_entry', entry, `haccp:${entryId}`);
+      Alert.alert('Saved offline', 'The HACCP record is queued and will synchronize automatically.');
+      resetRecord();
     } finally {
       setSaving(false);
     }

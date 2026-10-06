@@ -10,8 +10,9 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import {
   supabase, insertDailyReport, fetchDailyReports, fetchSpecOrders,
-  fetchBranchWorkers, saveBranchWorkers, updateDailyReport, fetchHaccpCompletion,
+  fetchBranchWorkerRecords, saveBranchWorkers, updateDailyReport, fetchHaccpCompletion,
 } from '../../lib/supabase';
+import { queueMutation, flushSyncQueue, getSyncState } from '../../lib/syncQueue';
 import { COLORS } from '../../constants';
 
 /* ─── constants ─────────────────────────────────────────────── */
@@ -239,6 +240,8 @@ export default function ManagerSubmitScreen() {
   const [submitted,    setSubmitted]    = useState(false);
   const [draftLoaded,  setDraftLoaded]  = useState(false);
   const [showCal,      setShowCal]      = useState(false);
+  const [showReview,   setShowReview]   = useState(false);
+  const [syncState,    setSyncState]    = useState({ pending:0, lastSync:null });
   const [haccpRequirements, setHaccpRequirements] = useState([]);
   const [haccpLoading, setHaccpLoading] = useState(false);
   const autoSaveTimer = useRef(null);
@@ -275,12 +278,12 @@ export default function ManagerSubmitScreen() {
       // 1. Load worker names from DB (canonical list for branch)
       let workerList = [];
       try {
-        const names = await fetchBranchWorkers(branch);
-        if (names.length > 0) workerList = names.map(name => ({ name, hours: '' }));
+        const records = await fetchBranchWorkerRecords(branch);
+        if (records.length > 0) workerList = records.map(worker => ({ worker_id:worker.id, name:worker.name, hours:'' }));
       } catch {
         try {
           const raw = await AsyncStorage.getItem(`workers_${branch}`);
-          if (raw) workerList = JSON.parse(raw).map(name => ({ name, hours: '' }));
+          if (raw) workerList = JSON.parse(raw).map(name => ({ worker_id:null, name:String(name).trim(), hours:'' }));
         } catch {}
       }
 
@@ -324,13 +327,13 @@ export default function ManagerSubmitScreen() {
           if (Array.isArray(wh) && wh.length > 0) {
             // Update hours for known workers
             let merged = workerList.map(w => {
-              const found = wh.find(x => x.name === w.name);
-              return found ? { ...w, hours: String(found.hours || '') } : w;
+              const found = wh.find(x => (x.worker_id && w.worker_id && x.worker_id === w.worker_id) || String(x.name||'').trim().toLocaleLowerCase() === String(w.name||'').trim().toLocaleLowerCase());
+              return found ? { ...w, worker_id:found.worker_id||w.worker_id, hours:String(found.hours||'') } : w;
             });
             // Add workers from report not in branch list
             wh.forEach(x => {
               if (x.name && !merged.find(w => w.name === x.name)) {
-                merged.push({ name: x.name, hours: String(x.hours || '') });
+                merged.push({ worker_id:x.worker_id||null, name:String(x.name).trim(), hours:String(x.hours||'') });
               }
             });
             workerList = merged;
@@ -399,20 +402,20 @@ export default function ManagerSubmitScreen() {
       } catch {}
 
       setDraftLoaded(true);
+      try { setSyncState(await getSyncState()); } catch {}
     }
     init();
   }, [branch, selectedDate]);
 
-  /* ── auto-save draft (only for new reports, not edits) ── */
+  /* ── auto-save draft for new reports and corrections ── */
   const autoSave = useCallback(() => {
-    if (drId) return; // don't auto-save drafts when editing existing record
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       try {
         await AsyncStorage.setItem(draftKey, JSON.stringify({ revenue, card, cash, workers, platforms, cfCats, notes, noteType }));
       } catch {}
     }, 800);
-  }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftKey, drId]);
+  }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftKey]);
 
   useEffect(() => { if (draftLoaded) autoSave(); }, [revenue, card, cash, workers, platforms, cfCats, notes, noteType, draftLoaded]);
 
@@ -476,7 +479,26 @@ export default function ManagerSubmitScreen() {
       ]);
       return;
     }
-    doSubmit();
+    setShowReview(true);
+  }
+
+  async function copyPreviousDay() {
+    try {
+      const previous = await fetchDailyReports(branch, prevDayOf(selectedDate), prevDayOf(selectedDate));
+      const row = previous?.[0];
+      if (!row) return Alert.alert('Nothing to copy', 'No report was found for the previous day.');
+      const priorWorkers = Array.isArray(row.worker_hours) ? row.worker_hours : [];
+      if (priorWorkers.length) setWorkers(priorWorkers.map(w => ({ worker_id:w.worker_id||null, name:String(w.name||'').trim(), hours:String(w.hours||'') })));
+      const expenses = Array.isArray(row.cashflow_expenses) ? row.cashflow_expenses : [];
+      if (expenses.length) setCfCats(expenses.map(e => ({ name:e.name||'', amount:String(e.amount||'') })));
+      Alert.alert('Copied', 'Workers, hours and expenses were copied from the previous day.');
+    } catch (error) { Alert.alert('Could not copy', error?.message || 'Check your connection.'); }
+  }
+
+  async function syncNow() {
+    const result = await flushSyncQueue();
+    setSyncState(result);
+    Alert.alert(result.pending ? 'Still pending' : 'Synchronized', result.pending ? `${result.pending} item(s) will retry automatically.` : 'All offline changes are synchronized.');
   }
 
   async function doSubmit() {
@@ -493,6 +515,7 @@ export default function ManagerSubmitScreen() {
         ...Object.fromEntries(PLATFORMS.map(p=>[p,n(platforms[p])])),
         restaumatic: n(platforms.repos),
         cashflow_expenses: cfFilled,
+        notes: `[${noteType}] ${notes.trim()}`,
       };
 
       // 1. Daily report — update if exists, insert if new
@@ -510,9 +533,23 @@ export default function ManagerSubmitScreen() {
 
       // clear draft
       await AsyncStorage.removeItem(draftKey);
+      const lastSync = new Date().toISOString();
+      await AsyncStorage.setItem('dostana_last_sync_v1', lastSync);
+      setSyncState({ pending:0, lastSync });
       setSubmitted(true);
     } catch(e) {
-      Alert.alert('Error', e.message || 'Submission failed. Try again.');
+      const offlineData = {
+        branch, date:selectedDate, utarg:rev, card:cardN, cash:cashN, working_hours:hoursN,
+        worker_hours:workers.filter(w=>n(w.hours)>0), total_delivery:totalDelivery,
+        total_revenue:rev, total_expenses:totalCF, net_profit:netProfit,
+        ...Object.fromEntries(PLATFORMS.map(p=>[p,n(platforms[p])])),
+        restaumatic:n(platforms.repos), cashflow_expenses:cfFilled, notes:`[${noteType}] ${notes.trim()}`,
+      };
+      const pending = await queueMutation('daily_report', offlineData, `daily:${branch}:${selectedDate}`);
+      setSyncState(state => ({ ...state, pending }));
+      setShowReview(false);
+      setSubmitted(true);
+      Alert.alert('Saved offline', 'The report is safely queued and will synchronize when a connection is available.');
     }
     setSaving(false);
   }
@@ -585,6 +622,9 @@ export default function ManagerSubmitScreen() {
             )}
           </TouchableOpacity>
           <Text style={s.headerSub}>{draftLoaded ? (isEditMode ? 'Loaded from DB' : 'Draft restored') : 'Loading...'}</Text>
+          <TouchableOpacity onPress={syncNow}>
+            <Text style={s.syncTxt}>{syncState.pending ? `${syncState.pending} pending · Sync now` : `Synced${syncState.lastSync ? ` ${new Date(syncState.lastSync).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}` : ''}`}</Text>
+          </TouchableOpacity>
         </View>
         {/* submission status chips */}
         <View style={{gap:3}}>
@@ -674,6 +714,9 @@ export default function ManagerSubmitScreen() {
             ))}
             <TouchableOpacity style={s.addWorkerBtn} onPress={() => setWorkers(p => [...p, {name:'', hours:''}])}>
               <Text style={s.addWorkerTxt}>+ Add Worker</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.copyBtn} onPress={copyPreviousDay}>
+              <Text style={s.copyBtnTxt}>Copy workers, hours & expenses from previous day</Text>
             </TouchableOpacity>
           </SectionCard>
 
@@ -784,6 +827,19 @@ export default function ManagerSubmitScreen() {
         onClose={() => setShowCal(false)}
       />
 
+      <Modal visible={showReview} transparent animationType="slide" onRequestClose={()=>setShowReview(false)}>
+        <View style={s.reviewShade}><View style={s.reviewCard}>
+          <Text style={s.reviewTitle}>Review before {isEditMode?'updating':'submitting'}</Text>
+          <Text style={s.reviewDate}>{branch} · {selectedDate}</Text>
+          {[['Revenue',`${fmtN(rev)} PLN`],['Payment total',`${fmtN(splitSum)} PLN`],['Employees',`${workers.filter(w=>n(w.hours)>0).length}`],['Working hours',`${hoursN} h`],['Expenses',`${fmtN(totalCF)} PLN`],['Net profit',`${fmtN(netProfit)} PLN`]].map(([label,value])=><View key={label} style={s.reviewRow}><Text style={s.reviewLabel}>{label}</Text><Text style={s.reviewValue}>{value}</Text></View>)}
+          {splitMismatch&&<Text style={s.reviewWarning}>Payment breakdown differs from total revenue.</Text>}
+          <View style={s.reviewActions}>
+            <TouchableOpacity style={s.reviewBack} onPress={()=>setShowReview(false)}><Text style={s.reviewBackTxt}>Go back</Text></TouchableOpacity>
+            <TouchableOpacity style={s.reviewConfirm} onPress={()=>{setShowReview(false);doSubmit();}}><Text style={s.reviewConfirmTxt}>{isEditMode?'Update report':'Confirm & submit'}</Text></TouchableOpacity>
+          </View>
+        </View></View>
+      </Modal>
+
       {/* ── STICKY BOTTOM BAR ── */}
       <View style={[s.stickyBar, isEditMode && {backgroundColor:'#1A237E'}]}>
         <View style={s.stickyStats}>
@@ -824,6 +880,7 @@ const s = StyleSheet.create({
   header:          { backgroundColor:'#fff', paddingHorizontal:16, paddingVertical:12, flexDirection:'row', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#EEE' },
   headerTitle:     { fontSize:16, fontWeight:'800', color:'#222' },
   headerSub:       { fontSize:11, color:'#aaa', marginTop:2 },
+  syncTxt:         { fontSize:10, color:'#1565C0', fontWeight:'800', marginTop:4 },
   datePickerBtn:   { flexDirection:'row', alignItems:'center', gap:8, backgroundColor:'#F4F6F8', borderRadius:12, paddingHorizontal:12, paddingVertical:8, marginTop:6, borderWidth:1.5, borderColor:'#E0E0E0' },
   datePickerIcon:  { fontSize:18 },
   datePickerTxt:   { fontSize:13, fontWeight:'800', color:'#222' },
@@ -900,4 +957,19 @@ const s = StyleSheet.create({
   workerDel:       { width:28, alignItems:'center' },
   addWorkerBtn:    { marginTop:8, paddingVertical:8, alignItems:'center', borderWidth:1.5, borderColor:COLORS.primary, borderRadius:8, borderStyle:'dashed' },
   addWorkerTxt:    { fontSize:13, fontWeight:'700', color:COLORS.primary },
+  copyBtn:         { marginTop:8, borderRadius:9, backgroundColor:'#E3F2FD', padding:10, alignItems:'center' },
+  copyBtnTxt:      { color:'#1565C0', fontSize:11, fontWeight:'800', textAlign:'center' },
+  reviewShade:     { flex:1, backgroundColor:'rgba(0,0,0,.55)', justifyContent:'flex-end' },
+  reviewCard:      { backgroundColor:'#fff', borderTopLeftRadius:22, borderTopRightRadius:22, padding:22, paddingBottom:34 },
+  reviewTitle:     { fontSize:18, fontWeight:'900', color:'#222' },
+  reviewDate:      { fontSize:12, color:'#777', marginTop:3, marginBottom:14 },
+  reviewRow:       { flexDirection:'row', justifyContent:'space-between', paddingVertical:9, borderBottomWidth:1, borderBottomColor:'#F1F1F1' },
+  reviewLabel:     { color:'#777', fontSize:13 },
+  reviewValue:     { color:'#222', fontSize:13, fontWeight:'900' },
+  reviewWarning:   { color:COLORS.danger, fontSize:12, fontWeight:'800', marginTop:10 },
+  reviewActions:   { flexDirection:'row', gap:10, marginTop:18 },
+  reviewBack:      { flex:1, backgroundColor:'#EEE', padding:14, borderRadius:12, alignItems:'center' },
+  reviewBackTxt:   { color:'#555', fontWeight:'800' },
+  reviewConfirm:   { flex:1.5, backgroundColor:COLORS.primary, padding:14, borderRadius:12, alignItems:'center' },
+  reviewConfirmTxt:{ color:'#fff', fontWeight:'900' },
 });

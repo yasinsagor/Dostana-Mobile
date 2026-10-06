@@ -65,7 +65,7 @@ function normalizeDailyReport(report, includeId = false) {
     'id', 'date', 'branch', 'total_revenue', 'utarg', 'cash', 'card', 'wolt',
     'glovo', 'uber_eats', 'bolt', 'pyszne', 'restaumatic', 'total_delivery',
     'cashflow_expenses', 'total_expenses', 'worker_hours', 'working_hours',
-    'net_profit', 'manager_adjusted_at', 'manager_adjusted_by_branch',
+    'net_profit', 'notes', 'manager_adjusted_at', 'manager_adjusted_by_branch',
   ];
   const normalized = { ...report };
   if (report.utarg !== undefined || report.revenue !== undefined || (includeId && report.total_revenue !== undefined)) {
@@ -352,6 +352,20 @@ export async function fetchBranchWorkers(branch) {
     }
   } catch {}
   return [];
+}
+
+export async function fetchBranchWorkerRecords(branch) {
+  try {
+    const { data, error } = await supabase
+      .from('branch_workers')
+      .select('id,name')
+      .eq('branch', branch)
+      .eq('active', true)
+      .order('name');
+    if (!error && data?.length) return data.map(row => ({ id: row.id, name: String(row.name || '').trim() }));
+  } catch {}
+  const names = await fetchBranchWorkers(branch);
+  return names.map(name => ({ id: null, name: String(name || '').trim() }));
 }
 
 export async function saveBranchWorkers(branch, names) {
