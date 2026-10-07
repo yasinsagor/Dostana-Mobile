@@ -36,7 +36,7 @@ function fmtDisplayDate(iso) {
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-function CalendarModal({ visible, selected, onSelect, onClose }) {
+export function CalendarModal({ visible, selected, onSelect, onClose }) {
   const today = new Date();
   const [viewYear,  setViewYear]  = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-indexed

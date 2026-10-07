@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
+import { CalendarModal } from './SubmitScreen';
 
 const API = process.env.EXPO_PUBLIC_PORTAL_API_URL || 'https://dostana-web-claude.vercel.app';
 const localDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
-export default function HaccpHistory() {
+export default function HaccpHistory({ onDateChange }) {
   const { user } = useAuth();
   const [date, setDate] = useState(localDate);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const loadSequence = useRef(0);
   const [pin, setPin] = useState('');
   const [entries, setEntries] = useState([]);
   const [loadedDate, setLoadedDate] = useState(null);
@@ -29,11 +32,17 @@ export default function HaccpHistory() {
     } finally { clearTimeout(timer); }
   }
   async function load() {
+    const sequence = ++loadSequence.current;
     setBusy(true); setError(''); setEdit(null); setLoadedDate(null); setEntries([]);
-    try { const data = await request({ action: 'list', date }); setEntries(data.entries || []); setLoadedDate(date); }
-    catch (e) { setError(e.message || 'Connection failed.'); }
-    finally { setBusy(false); }
+    try { const data = await request({ action: 'list', date }); if (sequence === loadSequence.current) { setEntries(data.entries || []); setLoadedDate(date); } }
+    catch (e) { if (sequence === loadSequence.current) setError(e.message || 'Connection failed.'); }
+    finally { if (sequence === loadSequence.current) setBusy(false); }
   }
+  useEffect(() => {
+    onDateChange?.(date);
+    if (user?.sessionPin || pin.trim()) load();
+    return () => { loadSequence.current++; };
+  }, [date, user?.branch, user?.sessionPin]);
   async function save() {
     setBusy(true); setError('');
     try {
@@ -47,11 +56,14 @@ export default function HaccpHistory() {
   const field = (label, value, onChange, options = {}) => <View style={{ gap: 5 }}><Text>{label}</Text><TextInput value={String(value ?? '')} onChangeText={onChange} editable={!busy} style={{ borderWidth: 1, borderColor: '#B8CDBE', borderRadius: 8, padding: 10, color: '#17251B' }} {...options} /></View>;
   const button = (title, fn) => <TouchableOpacity disabled={busy} onPress={fn} style={{ backgroundColor: '#15803D', borderRadius: 8, padding: 12 }}><Text style={{ color: '#fff', fontWeight: '700', textAlign: 'center' }}>{title}</Text></TouchableOpacity>;
   return <View style={{ gap: 12 }}>
-    <Text style={{ fontWeight: '800', fontSize: 17 }}>Previous HACCP records</Text>
-    <Text>Select any previous date. Corrections are online-only and limited to your branch. No edit-count restriction.</Text>
+    <TouchableOpacity disabled={busy} onPress={() => setCalendarOpen(true)} style={{ backgroundColor: '#fff', padding: 14, borderRadius: 12 }}>
+      <Text style={{ fontWeight: '800', fontSize: 17 }}>📅 {date}</Text>
+      <Text>{date === localDate() ? 'Today' : 'Past date'} · tap to change</Text>
+    </TouchableOpacity>
+    <CalendarModal visible={calendarOpen} selected={date} onSelect={value => { setDate(value); setEdit(null); setEntries([]); setLoadedDate(null); }} onClose={() => setCalendarOpen(false)} />
+    <Text>Choose a date to view and correct its saved records. Corrections require an internet connection.</Text>
     {!user?.sessionPin && field('Branch PIN', pin, setPin, { secureTextEntry: true, keyboardType: 'number-pad' })}
-    {field('Date (YYYY-MM-DD)', date, value => { setDate(value); setEdit(null); setEntries([]); setLoadedDate(null); }, { maxLength: 10 })}
-    {button('Load records', load)}
+    {!user?.sessionPin && button('Load records', load)}
     {busy && <ActivityIndicator color="#15803D" />}
     {!!error && <Text accessibilityRole="alert" style={{ color: '#B42318' }}>{error}</Text>}
     {loadedDate && !entries.length && !busy && <Text>No records saved for {loadedDate}.</Text>}

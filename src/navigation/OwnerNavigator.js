@@ -6,7 +6,6 @@ import { COLORS } from '../constants';
 import OwnerDashboardScreen    from '../screens/owner/DashboardScreen';
 import OwnerSpecScreen         from '../screens/owner/SpecScreen';
 import OwnerCashflowScreen     from '../screens/owner/CashflowScreen';
-import OwnerOperationsScreen   from '../screens/owner/OperationsScreen';
 import OwnerSettingsScreen     from '../screens/owner/SettingsScreen';
 import OwnerReportsScreen      from '../screens/owner/ReportsScreen';
 
@@ -17,7 +16,6 @@ const tabs = [
   { name: 'Reports',    component: OwnerReportsScreen,     icon: '📋' },
   { name: 'SPEC',       component: OwnerSpecScreen,        icon: '📦' },
   { name: 'Cash Flow',  component: OwnerCashflowScreen,    icon: '💰' },
-  { name: 'Operations', component: OwnerOperationsScreen,  icon: '🛠' },
   { name: 'Settings',   component: OwnerSettingsScreen,    icon: '⚙️' },
 ];
 

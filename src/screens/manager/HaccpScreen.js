@@ -132,7 +132,7 @@ const FALLBACK_INSTRUCTIONS = [
 ];
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
 
 function parseNumber(value) {
@@ -178,6 +178,7 @@ export default function HaccpScreen() {
   const submittedByRef = useRef(null);
   const branch = user?.branch || '';
   const [mode, setMode] = useState('record');
+  const [recordDate, setRecordDate] = useState(todayStr());
   const [type, setType] = useState('temperature');
   const [instructions, setInstructions] = useState(FALLBACK_INSTRUCTIONS);
   const [equipment, setEquipment] = useState([]);
@@ -391,7 +392,6 @@ export default function HaccpScreen() {
         <View style={styles.modeTabs}>
           {[
             ['record', 'New record'],
-            ['history', 'History / Edit'],
             ['setup', 'Equipment setup'],
             ['instructions', 'Instructions'],
           ].map(([key, label]) => (
@@ -405,9 +405,10 @@ export default function HaccpScreen() {
           <View style={styles.loading}><ActivityIndicator color={COLORS.primary} /><Text style={styles.muted}>Loading HACCP setup...</Text></View>
         ) : (
           <ScrollView ref={recordScrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-            {mode === 'history' && <HaccpHistory />}
             {mode === 'record' && (
               <>
+                <HaccpHistory onDateChange={setRecordDate} />
+                {recordDate === todayStr() && <>
                 <DailyStatus configured={dailyConfigured} complete={dailyComplete} missing={missingDaily} onSetup={() => setMode('setup')} />
                 <Text style={styles.sectionLabel}>REGISTER TYPE</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeRow}>
@@ -514,6 +515,7 @@ export default function HaccpScreen() {
                 <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.65 }]} onPress={submitRecord} disabled={saving} activeOpacity={0.8}>
                   {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save signed HACCP/GMP record</Text>}
                 </TouchableOpacity>
+                </>}
               </>
             )}
 
