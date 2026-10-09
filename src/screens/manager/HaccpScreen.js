@@ -23,6 +23,7 @@ import {
 } from '../../lib/supabase';
 import { queueMutation } from '../../lib/syncQueue';
 import { COLORS } from '../../constants';
+import HaccpHistory from './HaccpHistory';
 
 const REGISTER_TYPES = [
   { code: 'temperature', label: 'Temperature', icon: '🌡️' },
@@ -391,6 +392,7 @@ export default function HaccpScreen() {
         <View style={styles.modeTabs}>
           {[
             ['record', 'New record'],
+            ['history', 'History / edit'],
             ['setup', 'Equipment setup'],
             ['instructions', 'Instructions'],
           ].map(([key, label]) => (
@@ -404,6 +406,7 @@ export default function HaccpScreen() {
           <View style={styles.loading}><ActivityIndicator color={COLORS.primary} /><Text style={styles.muted}>Loading HACCP setup...</Text></View>
         ) : (
           <ScrollView ref={recordScrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            {mode === 'history' && <HaccpHistory />}
             {mode === 'record' && (
               <>
                 <DailyStatus configured={dailyConfigured} complete={dailyComplete} missing={missingDaily} onSetup={() => setMode('setup')} />

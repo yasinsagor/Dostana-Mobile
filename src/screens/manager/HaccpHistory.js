@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { CalendarModal } from './SubmitScreen';
+import { haccpCutoff } from '../../lib/haccpRetention';
 
 const API = process.env.EXPO_PUBLIC_PORTAL_API_URL || 'https://dostana-web-claude.vercel.app';
 const localDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
-export default function HaccpHistory({ onDateChange }) {
+export default function HaccpHistory() {
   const { user } = useAuth();
   const [date, setDate] = useState(localDate);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -39,7 +40,6 @@ export default function HaccpHistory({ onDateChange }) {
     finally { if (sequence === loadSequence.current) setBusy(false); }
   }
   useEffect(() => {
-    onDateChange?.(date);
     if (user?.sessionPin || pin.trim()) load();
     return () => { loadSequence.current++; };
   }, [date, user?.branch, user?.sessionPin]);
@@ -60,8 +60,9 @@ export default function HaccpHistory({ onDateChange }) {
       <Text style={{ fontWeight: '800', fontSize: 17 }}>📅 {date}</Text>
       <Text>{date === localDate() ? 'Today' : 'Past date'} · tap to change</Text>
     </TouchableOpacity>
-    <CalendarModal visible={calendarOpen} selected={date} onSelect={value => { setDate(value); setEdit(null); setEntries([]); setLoadedDate(null); }} onClose={() => setCalendarOpen(false)} />
-    <Text>Choose a date to view and correct its saved records. Corrections require an internet connection.</Text>
+    <CalendarModal visible={calendarOpen} selected={date} minDate={haccpCutoff()} maxDate={localDate()} onSelect={value => { if (value < haccpCutoff() || value > localDate()) return; setDate(value); setEdit(null); setEntries([]); setLoadedDate(null); }} onClose={() => setCalendarOpen(false)} />
+    <Text>View and edit saved records from {haccpCutoff()} to {localDate()}. Corrections require an internet connection.</Text>
+    {!!user?.sessionPin && button('Refresh records', load)}
     {!user?.sessionPin && field('Branch PIN', pin, setPin, { secureTextEntry: true, keyboardType: 'number-pad' })}
     {!user?.sessionPin && button('Load records', load)}
     {busy && <ActivityIndicator color="#15803D" />}

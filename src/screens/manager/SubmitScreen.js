@@ -36,18 +36,28 @@ function fmtDisplayDate(iso) {
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-export function CalendarModal({ visible, selected, onSelect, onClose }) {
+export function CalendarModal({ visible, selected, onSelect, onClose, minDate, maxDate }) {
   const today = new Date();
   const [viewYear,  setViewYear]  = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-indexed
+  const currentMonth = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`;
+  const isPrevDisabled = !!minDate && currentMonth <= minDate.slice(0, 7);
+  useEffect(() => {
+    if (visible && selected) {
+      setViewYear(Number(selected.slice(0, 4)));
+      setViewMonth(Number(selected.slice(5, 7)) - 1);
+    }
+  }, [visible, selected]);
 
   function prevMonth() {
+    if (isPrevDisabled) return;
     if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
     else setViewMonth(m => m - 1);
   }
   function nextMonth() {
+    if (maxDate && currentMonth >= maxDate.slice(0, 7)) return;
     const now = new Date();
-    if (viewYear > now.getFullYear() || (viewYear === now.getFullYear() && viewMonth >= now.getMonth())) return;
+    if (!maxDate && (viewYear > now.getFullYear() || (viewYear === now.getFullYear() && viewMonth >= now.getMonth()))) return;
     if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
     else setViewMonth(m => m + 1);
   }
@@ -68,10 +78,11 @@ export function CalendarModal({ visible, selected, onSelect, onClose }) {
   }
 
   function isFuture(day) {
+    if (maxDate) return isoFor(day) > maxDate;
     return new Date(isoFor(day)) > today;
   }
 
-  const isNextDisabled = viewYear > today.getFullYear() ||
+  const isNextDisabled = maxDate ? currentMonth >= maxDate.slice(0, 7) : viewYear > today.getFullYear() ||
     (viewYear === today.getFullYear() && viewMonth >= today.getMonth());
 
   return (
@@ -80,8 +91,8 @@ export function CalendarModal({ visible, selected, onSelect, onClose }) {
         <TouchableOpacity activeOpacity={1} style={cal.box}>
           {/* Month nav */}
           <View style={cal.nav}>
-            <TouchableOpacity onPress={prevMonth} style={cal.navBtn} activeOpacity={0.7}>
-              <Text style={cal.navArrow}>‹</Text>
+            <TouchableOpacity onPress={prevMonth} disabled={isPrevDisabled} style={cal.navBtn} activeOpacity={0.7}>
+              <Text style={[cal.navArrow, isPrevDisabled && { color: '#ccc' }]}>‹</Text>
             </TouchableOpacity>
             <Text style={cal.monthLabel}>{MONTHS[viewMonth]} {viewYear}</Text>
             <TouchableOpacity onPress={nextMonth} style={cal.navBtn} activeOpacity={0.7} disabled={isNextDisabled}>
@@ -106,7 +117,7 @@ export function CalendarModal({ visible, selected, onSelect, onClose }) {
                 const iso = isoFor(day);
                 const isSelected = iso === selected;
                 const isToday = iso === todayStr();
-                const future = isFuture(day);
+                const future = isFuture(day) || (!!minDate && iso < minDate);
                 return (
                   <TouchableOpacity
                     key={col}
@@ -133,7 +144,7 @@ export function CalendarModal({ visible, selected, onSelect, onClose }) {
             </View>
           ))}
 
-          <TouchableOpacity style={cal.todayBtn} onPress={() => { onSelect(todayStr()); onClose(); }} activeOpacity={0.8}>
+          <TouchableOpacity style={cal.todayBtn} onPress={() => { onSelect(maxDate || todayStr()); onClose(); }} activeOpacity={0.8}>
             <Text style={cal.todayBtnTxt}>Go to Today</Text>
           </TouchableOpacity>
         </TouchableOpacity>
