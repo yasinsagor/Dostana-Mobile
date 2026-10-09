@@ -111,10 +111,8 @@ jobs:
             adb exec-out screencap -p > screen.png
             adb logcat -d > logcat.txt
             grep -nE "FATAL EXCEPTION|ReactNativeJS" -A 12 logcat.txt | head -80 || true
-            echo "----- app warnings and errors -----"
-            APP_PID=$(grep -m1 -oE "Start proc ([0-9]+):com.dostana.spec" logcat.txt | grep -oE "[0-9]+" | head -1)
-            echo "app pid: $APP_PID"
-            grep -E "^\S+ \S+ +$APP_PID +[0-9]+ [EW] " logcat.txt | grep -vE "avc:|StrictMode" | head -150 || true
+            echo "----- expo / JSI lines -----"
+            grep -iE "expo|JSI|ExpoModulesCore|Unable to install" logcat.txt | grep -vE "avc:" | head -80 || true
             adb shell pidof com.dostana.spec
 
       - uses: actions/upload-artifact@v4
