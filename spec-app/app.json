@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Dostana SPEC",
+    "slug": "dostana-spec",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F172A"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.dostana.spec",
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.dostana.spec",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F172A"
+      }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 24,
+            "ndkVersion": "27.2.12479018",
+            "enableProguardInReleaseBuilds": false,
+            "enableMinifyInReleaseBuilds": false
+          }
+        }
+      ],
+      "./plugins/with16KBPageSupport",
+      "./plugins/withUseLegacyPackaging",
+      "./plugins/withDisableEdgeToEdge"
+    ]
+  }
+}

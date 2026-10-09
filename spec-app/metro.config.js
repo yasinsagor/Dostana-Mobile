@@ -4,13 +4,6 @@ const config = getDefaultConfig(__dirname);
 
 config.resolver.sourceExts = [...config.resolver.sourceExts, 'cjs', 'mjs'];
 
-// spec-app/ is a separate Expo app with its own node_modules; keep it out of this bundle.
-const existingBlockList = config.resolver.blockList;
-config.resolver.blockList = [
-  ...(Array.isArray(existingBlockList) ? existingBlockList : existingBlockList ? [existingBlockList] : []),
-  /[\/\\]spec-app[\/\\].*/,
-];
-
 // Transform all packages that use modern syntax through Babel
 // so Hermes can compile them (fixes dynamic import() from @opentelemetry)
 config.transformer.transformIgnorePatterns = [
