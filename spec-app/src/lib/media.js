@@ -29,8 +29,13 @@ export function useVoiceRecorder(onRecorded) {
   async function stop() {
     if (stopping.current) return;
     stopping.current = true;
+    const millis = state.durationMillis || 0;
     try {
       await recorder.stop();
+      if (millis < 1000) {
+        await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+        throw new Error('That was too short. Tap the microphone, say what you need, then tap Done.');
+      }
       await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
       if (!recorder.uri) throw new Error('Nothing was recorded. Try again.');
       const audio = await readAsStringAsync(recorder.uri, { encoding: 'base64' });

@@ -62,9 +62,21 @@ returns only real product ids and units. The OpenAI key is never in the app.
 
 1. Supabase dashboard → project → Edge Functions → Secrets.
 2. Add `OPENAI_API_KEY` with your OpenAI key.
-3. Optional: `OPENAI_MODEL` for matching and photos (default `gpt-4o-mini`) and
+3. Optional: `OPENAI_MODEL` for matching and photos (default `gpt-5-mini`) and
    `OPENAI_TRANSCRIBE_MODEL` for voice (default `gpt-4o-mini-transcribe`, falls
    back to `whisper-1`).
+
+Model choice: on test orders against the live catalogue (Polish, English,
+Bengali, Urdu, unit conversions), `gpt-5-mini` matched product and unit best
+but takes about 9 s; `gpt-4.1` was nearly as accurate at about 5 s and roughly
+three times the price; `gpt-4o-mini` and `gpt-4.1-mini` made unit and product
+mistakes.
+
+Safety checks in the function: the branch PIN is verified before any OpenAI
+call; the model gets short catalogue numbers and must copy the name, and the
+name decides if they disagree; only catalogue units are accepted; no prompt is
+sent to the speech model (it can echo prompts in silence) and echo-like
+transcripts are treated as "no words". The app ignores recordings under 1 s.
 
 Voice recordings (max 30 s) and photos (shrunk to 1024 px) are sent to the
 function for that one search and are not stored.
