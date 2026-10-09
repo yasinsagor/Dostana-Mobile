@@ -23,7 +23,6 @@ import {
 } from '../../lib/supabase';
 import { queueMutation } from '../../lib/syncQueue';
 import { COLORS } from '../../constants';
-import HaccpHistory from './HaccpHistory';
 
 const REGISTER_TYPES = [
   { code: 'temperature', label: 'Temperature', icon: '🌡️' },
@@ -178,7 +177,6 @@ export default function HaccpScreen() {
   const submittedByRef = useRef(null);
   const branch = user?.branch || '';
   const [mode, setMode] = useState('record');
-  const [recordDate, setRecordDate] = useState(todayStr());
   const [type, setType] = useState('temperature');
   const [instructions, setInstructions] = useState(FALLBACK_INSTRUCTIONS);
   const [equipment, setEquipment] = useState([]);
@@ -341,6 +339,7 @@ export default function HaccpScreen() {
     });
     const entry = {
         id: entryId,
+        recorded_at: new Date().toISOString(),
         branch,
         register_type: type,
         instruction_code: activeInstruction?.code || type,
@@ -407,8 +406,6 @@ export default function HaccpScreen() {
           <ScrollView ref={recordScrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             {mode === 'record' && (
               <>
-                <HaccpHistory onDateChange={setRecordDate} />
-                {recordDate === todayStr() && <>
                 <DailyStatus configured={dailyConfigured} complete={dailyComplete} missing={missingDaily} onSetup={() => setMode('setup')} />
                 <Text style={styles.sectionLabel}>REGISTER TYPE</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeRow}>
@@ -515,7 +512,6 @@ export default function HaccpScreen() {
                 <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.65 }]} onPress={submitRecord} disabled={saving} activeOpacity={0.8}>
                   {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save signed HACCP/GMP record</Text>}
                 </TouchableOpacity>
-                </>}
               </>
             )}
 

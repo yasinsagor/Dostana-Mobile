@@ -243,11 +243,12 @@ export default function OwnerSettingsScreen() {
     if (!validPin(pin)) return Alert.alert('Invalid PIN', 'Manager PIN must be 4–8 digits.');
     setBranchAdminSaving(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('branch_settings')
         .update({ pin })
-        .eq('branch', pinBranch);
+        .eq('branch', pinBranch).select('branch').single();
       if (error) throw error;
+      if (!data) throw new Error('Branch PIN was not updated. Refresh and try again.');
       setPinValue('');
       await refreshBranchAdmin();
       Alert.alert('PIN updated', `${pinBranch} manager PIN is now ${pin}.`);

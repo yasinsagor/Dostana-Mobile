@@ -179,18 +179,14 @@ export async function fetchHaccpCompletion(branch, date) {
 }
 
 export async function fetchActiveBranches() {
-  const [settingsResult, reportsResult, ordersResult] = await Promise.all([
-    supabase.from('branch_settings').select('branch,pin').eq('active', true).order('branch'),
-    supabase.from('daily_reports').select('branch'),
-    supabase.from('spec_orders').select('branch'),
-  ]);
-  if (settingsResult.error) throw settingsResult.error;
-  const byName = new Map();
-  for (const item of settingsResult.data || []) byName.set(item.branch, { name: item.branch, pin: item.pin || '' });
-  for (const item of [...(reportsResult.data || []), ...(ordersResult.data || [])]) {
-    if (item.branch && !byName.has(item.branch)) byName.set(item.branch, { name: item.branch, pin: '' });
-  }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const { data, error } = await supabase.from('branch_settings')
+      .select('branch,pin').eq('active', true).order('branch').abortSignal(controller.signal);
+    if (error) throw error;
+    return (data || []).map(item => ({ name: item.branch, pin: String(item.pin || '').trim() }));
+  } finally { clearTimeout(timeout); }
 }
 
 // Daily reports

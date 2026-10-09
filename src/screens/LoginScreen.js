@@ -66,6 +66,8 @@ export default function LoginScreen() {
   const [pin, setPin]     = useState('');
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const signingInRef = useRef(false);
 
   /* dot animations */
   const dotScales = useRef([...Array(PIN_LENGTH)].map(() => new Animated.Value(1))).current;
@@ -100,6 +102,7 @@ export default function LoginScreen() {
   }
 
   function pressDigit(d) {
+    if (signingInRef.current) return;
     if (pin.length >= PIN_LENGTH) return;
     setError('');
     const next = pin + d;
@@ -111,16 +114,28 @@ export default function LoginScreen() {
   }
 
   function pressDelete() {
+    if (signingInRef.current) return;
     setError('');
     setPin(p => p.slice(0, -1));
   }
 
-  function attemptLogin(p = pin) {
-    const result = login((p || pin).trim());
-    if (!result.ok) {
-      setError(result.error || 'Invalid PIN');
+  async function attemptLogin(p = pin) {
+    if (signingInRef.current) return;
+    signingInRef.current = true;
+    setSigningIn(true);
+    try {
+      const result = await login((p || pin).trim());
+      if (!result.ok) {
+        setError(result.error || 'Invalid PIN');
+        setPin('');
+        triggerShake();
+      }
+    } catch {
+      setError('Could not sign in. Please try again.');
       setPin('');
-      triggerShake();
+    } finally {
+      signingInRef.current = false;
+      setSigningIn(false);
     }
   }
 
@@ -200,7 +215,7 @@ export default function LoginScreen() {
         )}
       </View>
 
-      <Text style={s.hint}>Enter your 4-digit PIN</Text>
+      <Text style={s.hint}>{signingIn ? 'Verifying PIN…' : 'Enter your 4-digit PIN'}</Text>
     </View>
   );
 }

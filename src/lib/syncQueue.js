@@ -1,11 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import { expiredHaccp } from './haccpRetention';
 
 const QUEUE_KEY = 'dostana_offline_sync_queue_v1';
 const STATUS_KEY = 'dostana_last_sync_v1';
 
 async function readQueue() {
-  try { return JSON.parse(await AsyncStorage.getItem(QUEUE_KEY)) || []; }
+  try {
+    const queue = JSON.parse(await AsyncStorage.getItem(QUEUE_KEY)) || [];
+    const retained = queue.filter(item => item.kind !== 'haccp_entry' || !expiredHaccp(item.payload.recorded_at || item.createdAt));
+    if (retained.length !== queue.length) await writeQueue(retained);
+    return retained;
+  }
   catch { return []; }
 }
 
@@ -46,7 +52,7 @@ async function execute(item) {
     return;
   }
   if (kind === 'haccp_entry') {
-    const { error } = await supabase.from('haccp_register_entries').insert([payload]);
+    const { error } = await supabase.from('haccp_register_entries').insert([{ ...payload, recorded_at: payload.recorded_at || item.createdAt }]);
     if (error && error.code !== '23505') throw error;
     return;
   }

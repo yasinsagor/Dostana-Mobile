@@ -1,0 +1,13 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const source = fs.readFileSync(path.join(__dirname, '../src/lib/haccpRetention.js'), 'utf8').replaceAll('export function', 'function');
+const { haccpCutoff, expiredHaccp } = new Function(`${source}; return { haccpCutoff, expiredHaccp };`)();
+const now = new Date('2026-10-09T10:00:00Z');
+assert.equal(haccpCutoff(now), '2026-07-09');
+assert.equal(expiredHaccp('2026-07-08T21:59:59Z', now), true);
+assert.equal(expiredHaccp('2026-07-08T22:00:00Z', now), false, 'Warsaw midnight cutoff is retained');
+assert.equal(haccpCutoff(new Date('2026-05-31T10:00:00Z')), '2026-02-28', 'Three calendar months clamp at month end');
+assert.equal(haccpCutoff(new Date('2028-05-31T10:00:00Z')), '2028-02-29', 'Leap year cutoff');
+assert.equal(expiredHaccp('2026-10-09T10:00:00Z', now), false);
+console.log('PASS: calendar-month retention, Warsaw midnight boundary, month ends and leap years');
