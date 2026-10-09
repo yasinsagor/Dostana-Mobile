@@ -1,8 +1,10 @@
-// spec-ai-search: matches what a branch manager types (any language, typos,
-// quantities) to products in the SPEC catalogue using OpenAI.
+// spec-ai-search: finds the correct SPEC product and the correct unit to order
+// from what a branch manager types, says or photographs, in any language.
 //
-// POST { branch, pin, query, mode: "search" | "order" }
-//  → { items: [{ product_id, name, qty, unit, reason }], unmatched: [string], message }
+// POST { branch, pin, query?, audio?, audio_format?, image?, mode? }
+//   query: text · audio: base64 m4a (voice) · image: base64 JPEG (product, label or list)
+//   mode: "search" (search box) or "order" (whole order)
+// → { items: [{ product_id, name, qty, unit, reason }], unmatched: [string], message, transcript }
 //
 // The OpenAI key lives only in the Supabase secret OPENAI_API_KEY.
 // The branch PIN is checked against branch_settings before any OpenAI call.
@@ -15,12 +17,16 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+const TRANSCRIBE_MODEL = Deno.env.get("OPENAI_TRANSCRIBE_MODEL") || "gpt-4o-mini-transcribe";
 const MAX_QUERY = 600;
+const MAX_AUDIO_B64 = 4_000_000;  // ~3 MB of audio, far more than 30 s
+const MAX_IMAGE_B64 = 3_000_000;  // ~2.2 MB JPEG
 
 type Product = {
   id: string; name: string; category: string | null; unit: string | null;
   pack_size: string | null; unit_options: unknown;
 };
+type UnitOption = { unit: string; multiplier: number };
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -28,18 +34,32 @@ function json(body: unknown, status = 200) {
 
 function isSizedMeat(p: Product) { return p.name === "Kurczak" || p.name === "Baranina"; }
 
-function allowedUnits(p: Product): string[] {
+function unitOptions(p: Product): UnitOption[] {
   if (isSizedMeat(p)) {
     const sizes = String(p.pack_size || "").match(/\d+\s*kg/gi)?.map(s => s.replace(/\s+/g, "").toLowerCase());
-    return sizes?.length ? [...new Set(sizes)] : ["10kg", "15kg", "20kg", "25kg", "30kg"];
+    return (sizes?.length ? [...new Set(sizes)] : ["10kg", "15kg", "20kg", "25kg", "30kg"]).map(unit => ({ unit, multiplier: 1 }));
   }
-  let options = p.unit_options as unknown;
-  if (typeof options === "string") { try { options = JSON.parse(options); } catch { options = []; } }
-  const units = Array.isArray(options)
-    ? options.map(o => (typeof o === "string" ? o : (o as { unit?: string; label?: string })?.unit || (o as { label?: string })?.label)).filter(Boolean) as string[]
+  let raw = p.unit_options as unknown;
+  if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = []; } }
+  const list: UnitOption[] = Array.isArray(raw)
+    ? raw.map(o => typeof o === "string"
+        ? { unit: o, multiplier: 1 }
+        : { unit: String((o as { unit?: string; label?: string })?.unit || (o as { label?: string })?.label || ""), multiplier: Number((o as { multiplier?: number })?.multiplier || 1) })
+      .filter(o => o.unit)
     : [];
-  if (p.unit && !units.includes(p.unit)) units.unshift(p.unit);
-  return units;
+  if (p.unit && !list.some(o => o.unit === p.unit)) list.unshift({ unit: p.unit, multiplier: 1 });
+  return list.length ? list : [{ unit: p.unit || "szt", multiplier: 1 }];
+}
+
+/* "karton (= 12 × szt), szt" so the model can convert between units. */
+function describeUnits(p: Product) {
+  const list = unitOptions(p);
+  if (isSizedMeat(p)) return `cone sizes: ${list.map(o => o.unit).join(", ")}`;
+  const smallest = list.reduce((a, b) => (b.multiplier < a.multiplier ? b : a), list[0]);
+  return list.map(o => {
+    const ratio = Math.round((o.multiplier / smallest.multiplier) * 100) / 100;
+    return o.unit !== smallest.unit && ratio > 1 ? `${o.unit} (= ${ratio} × ${smallest.unit})` : o.unit;
+  }).join(", ");
 }
 
 const SCHEMA = {
@@ -68,30 +88,73 @@ const SCHEMA = {
 
 function systemPrompt(mode: string) {
   return [
-    "You help a manager of a Polish kebab restaurant order supplies from the SPEC wholesaler.",
-    "You get the product catalogue and the manager's text. The text may be Polish, English, Bengali, Urdu, Hindi or a mix, with typos, abbreviations and no Polish letters.",
-    "Match the text only to products in the catalogue, using their exact id. Never invent products.",
-    "Products marked 'usual' are ones this branch orders often: prefer them when the text fits several products (for example 'ketchup' or 'gloves').",
-    "qty: only when the manager gave a number for that product, otherwise null. Never guess quantities.",
-    "unit: one of that product's listed units, or null. For Kurczak and Baranina the units are cone sizes like '15kg'; '2 kurczak 20' means qty 2, unit '20kg'.",
+    "You help managers of Dostana Kebab restaurants in Poland order supplies from the SPEC wholesaler.",
+    "Your job: find the correct product in the catalogue and the correct unit to order it in.",
+    "Input can be text, a voice transcript or a photo, in any language (Polish, English, Bengali, Urdu, Hindi, Turkish, Ukrainian, Arabic…), with typos, slang, abbreviations and no Polish letters.",
+    "A photo can show a product or its label (find that product), an empty box or shelf (find what it is), or a handwritten or printed list (read every line as an order).",
+    "",
+    "Rules:",
+    "- Use only products from the catalogue, by their exact id. Never invent products.",
+    "- Products marked 'usual' are ordered often by this branch: prefer them when several products fit (e.g. 'ketchup', 'gloves', 'pita').",
+    "- unit: always one of the product's listed units. Pick the unit the manager named; if none was named, pick the first listed unit (the normal order unit).",
+    "- If the manager gave an amount in another measure (kg, litres, bags, pieces, boxes), convert it to the order unit using the unit ratios and pack info, round up, and say the conversion in 'reason' (e.g. '10 kg = 4 bags of 2.5 kg = 1 karton').",
+    "- qty: only when the manager gave an amount for that product (after conversion). Otherwise null. Never guess quantities.",
+    "- Kurczak and Baranina are ordered as kebab cones; their units are cone sizes like '15kg'. '2 kurczak 20' means qty 2, unit '20kg'. If no size was given, unit is null.",
+    "- reason: a few words in English: why this product, and the order unit (e.g. 'Mayonnaise · order per 10 kg bucket').",
     mode === "order"
-      ? "The text is a whole order: return one item per product mentioned, in the order mentioned. Put anything you cannot match in 'unmatched'."
-      : "The text is a search: return the best matching products, best first, at most 8. If nothing fits, return no items and explain in 'message'.",
-    "reason: a few words in English on why this product matches. message: one short English sentence for the manager.",
+      ? "- This is a whole order: return one item per product mentioned, in the same order. Anything you cannot match goes to 'unmatched' in the manager's words."
+      : "- This is a search: return the products that best match, best first, at most 6. If the text names several products with amounts, return all of them. If nothing fits, return no items and explain in 'message'.",
+    "- message: one short, plain English sentence for the manager.",
   ].join("\n");
+}
+
+function b64ToBytes(b64: string) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function transcribe(apiKey: string, audioB64: string, format: string, hint: string) {
+  const type = format === "wav" ? "audio/wav" : format === "webm" ? "audio/webm" : "audio/mp4";
+  const tryModel = async (model: string) => {
+    const form = new FormData();
+    form.append("file", new Blob([b64ToBytes(audioB64)], { type }), `voice.${format || "m4a"}`);
+    form.append("model", model);
+    form.append("prompt", hint);
+    return fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form,
+    });
+  };
+  let res = await tryModel(TRANSCRIBE_MODEL);
+  if (!res.ok && TRANSCRIBE_MODEL !== "whisper-1") {
+    console.error("transcribe", TRANSCRIBE_MODEL, res.status, (await res.text()).slice(0, 300));
+    res = await tryModel("whisper-1");
+  }
+  if (!res.ok) {
+    console.error("transcribe", res.status, (await res.text()).slice(0, 300));
+    throw new Error("Could not understand the recording.");
+  }
+  const data = await res.json();
+  return String(data.text || "").trim();
 }
 
 Deno.serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Use POST." }, 405);
 
-  let body: { branch?: string; pin?: string; query?: string; mode?: string };
+  let body: { branch?: string; pin?: string; query?: string; mode?: string; audio?: string; audio_format?: string; image?: string };
   try { body = await req.json(); } catch { return json({ error: "Invalid request." }, 400); }
   const branch = String(body.branch || "").trim();
   const pin = String(body.pin || "").trim();
-  const query = String(body.query || "").trim().slice(0, MAX_QUERY);
+  let query = String(body.query || "").trim().slice(0, MAX_QUERY);
   const mode = body.mode === "order" ? "order" : "search";
-  if (!branch || !pin || !query) return json({ error: "Branch, PIN and text are required." }, 400);
+  const audio = typeof body.audio === "string" && body.audio.length ? body.audio : null;
+  const image = typeof body.image === "string" && body.image.length ? body.image.replace(/^data:image\/\w+;base64,/, "") : null;
+  if (!branch || !pin) return json({ error: "Branch and PIN are required." }, 400);
+  if (!query && !audio && !image) return json({ error: "Type, speak or take a photo first." }, 400);
+  if (audio && audio.length > MAX_AUDIO_B64) return json({ error: "The recording is too long. Keep it under 30 seconds." }, 413);
+  if (image && image.length > MAX_IMAGE_B64) return json({ error: "The photo is too large." }, 413);
 
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   if (!apiKey) return json({ error: "AI search is not set up yet (missing OPENAI_API_KEY)." }, 503);
@@ -103,7 +166,7 @@ Deno.serve(async req => {
   const { data: branchRow, error: branchError } = await db
     .from("branch_settings").select("branch").eq("branch", branch).eq("pin", pin).eq("active", true).maybeSingle();
   if (branchError) return json({ error: "Could not check the branch." }, 500);
-  if (!branchRow) return json({ error: "Branch PIN not accepted." }, 401);
+  if (!branchRow) return json({ error: "Branch PIN not accepted. Log out and log in again." }, 401);
 
   const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
   const [{ data: products, error: productError }, { data: orders }] = await Promise.all([
@@ -111,15 +174,33 @@ Deno.serve(async req => {
     db.from("spec_orders").select("items").eq("branch", branch).gte("date", since),
   ]);
   if (productError || !products?.length) return json({ error: "Could not load the product list." }, 500);
+  const catalogueProducts = products as Product[];
+
+  let transcript = "";
+  if (audio) {
+    // Product names help the speech model spell Polish product words correctly.
+    const hint = `Kebab restaurant supply order. Products: ${catalogueProducts.slice(0, 60).map(p => p.name).join(", ")}`.slice(0, 900);
+    try { transcript = await transcribe(apiKey, audio, String(body.audio_format || "m4a"), hint); }
+    catch (e) { return json({ error: (e as Error).message }, 502); }
+    if (!transcript) return json({ items: [], unmatched: [], message: "I could not hear any words. Try again closer to the phone.", transcript });
+    query = [query, transcript].filter(Boolean).join("\n").slice(0, MAX_QUERY);
+  }
 
   const usage = new Map<string, number>();
   for (const o of orders || []) {
     const items = Array.isArray(o.items) ? o.items : [];
     for (const it of items as { id?: string }[]) if (it?.id) usage.set(it.id, (usage.get(it.id) || 0) + 1);
   }
-  const catalogue = (products as Product[]).map(p =>
-    `${p.id} | ${p.name} | ${p.category || ""} | units: ${allowedUnits(p).join(", ")}${p.pack_size ? ` | pack: ${p.pack_size}` : ""}${(usage.get(p.id) || 0) >= 3 ? " | usual" : ""}`
+  const catalogue = catalogueProducts.map(p =>
+    `${p.id} | ${p.name} | ${p.category || ""} | units: ${describeUnits(p)}${p.pack_size ? ` | pack: ${p.pack_size}` : ""}${(usage.get(p.id) || 0) >= 3 ? " | usual" : ""}`
   ).join("\n");
+
+  const userContent: unknown[] = [{
+    type: "text",
+    text: `CATALOGUE (id | name | category | units | pack):\n${catalogue}\n\n` +
+      (query ? `MANAGER ${audio ? "SAID" : "WROTE"}:\n${query}` : "MANAGER SENT A PHOTO. Find the products in it."),
+  }];
+  if (image) userContent.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}`, detail: "high" } });
 
   const ai = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -130,7 +211,7 @@ Deno.serve(async req => {
       response_format: { type: "json_schema", json_schema: { name: "spec_match", strict: true, schema: SCHEMA } },
       messages: [
         { role: "system", content: systemPrompt(mode) },
-        { role: "user", content: `CATALOGUE (id | name | category | units | pack):\n${catalogue}\n\nMANAGER TEXT:\n${query}` },
+        { role: "user", content: userContent },
       ],
     }),
   });
@@ -143,23 +224,25 @@ Deno.serve(async req => {
   try { parsed = JSON.parse(completion.choices?.[0]?.message?.content || "{}"); } catch { parsed = {}; }
 
   // Keep only real products and units, whatever the model returned.
-  const byId = new Map((products as Product[]).map(p => [p.id, p]));
+  const byId = new Map(catalogueProducts.map(p => [p.id, p]));
   const seen = new Set<string>();
   const items = (parsed.items || []).flatMap(it => {
     const p = byId.get(it.product_id);
     if (!p) return [];
-    const units = allowedUnits(p);
-    const unit = it.unit && units.includes(it.unit) ? it.unit : null;
-    const qty = typeof it.qty === "number" && it.qty > 0 && it.qty < 1000 ? it.qty : null;
+    const units = unitOptions(p).map(o => o.unit);
+    let unit = it.unit && units.find(u => u.toLowerCase() === String(it.unit).toLowerCase()) || null;
+    if (!unit && !isSizedMeat(p)) unit = units[0];
+    const qty = typeof it.qty === "number" && it.qty > 0 && it.qty < 1000 ? Math.round(it.qty * 100) / 100 : null;
     const key = `${p.id}:${unit}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    return [{ product_id: p.id, name: p.name, qty, unit, reason: String(it.reason || "").slice(0, 120) }];
+    return [{ product_id: p.id, name: p.name, qty, unit, reason: String(it.reason || "").slice(0, 160) }];
   });
 
   return json({
     items,
     unmatched: (parsed.unmatched || []).map(s => String(s).slice(0, 80)).slice(0, 10),
     message: String(parsed.message || "").slice(0, 200),
+    transcript,
   });
 });

@@ -2,13 +2,11 @@
 // and supplier portal see every order placed here.
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://fqjblkdolxxawvvyoewr.supabase.co';
 export const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_uYyqG984_qGCZkF-T4cOqA_Vlb1ibgU';
-export const PORTAL_API = process.env.EXPO_PUBLIC_PORTAL_API_URL || 'https://dostana-web-claude.vercel.app';
 
 export const ORDER_CUTOFF_HOUR = 18;   // order before 18:00 for next-day delivery
 export const SPEC_TARGET_PCT = 15;     // SPEC cost above this % of revenue is flagged
 export const HISTORY_DAYS = 60;        // history and "usual products" window
-export const AI_BRANCHES = ['Lopuszanska']; // sales-based AI suggestions (portal trial)
-export const AI_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spec-ai-search`; // AI product matching, all branches
+export const AI_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spec-ai-search`; // AI search (text, voice, photo), all branches
 
 // Used only when the branch list cannot be loaded and nothing is cached.
 export const FALLBACK_BRANCHES = [

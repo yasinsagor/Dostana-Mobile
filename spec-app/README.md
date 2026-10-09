@@ -27,18 +27,19 @@ the supplier portal see every order without any change.
 - **Offline**: products and orders are cached on the phone. An order sent
   without internet is queued and sent automatically when the app is next open
   online.
-- **AI search**, all branches: when the normal search finds nothing, the AI
-  is asked automatically; otherwise "Ask AI" is one tap away. It understands any
-  language, typos and quantities ("2 kurczak 20, 5 pita 85") and only returns
-  products from the catalogue. Results can be added one by one or all at once.
-- **AI tab**, all branches: "Type your order" turns a whole order written or
-  dictated (keyboard microphone) in the manager's own words into products and
-  quantities. Anything not in the catalogue can go to the supplier note.
-  "Sales advice" is the existing GoPOS-based assistant, still a Łopuszańska
-  trial (`AI_BRANCHES` in `src/config.js`).
+- **AI search** (all branches): the search bar has 🎤 voice and 📷 photo
+  buttons. Typing, speaking or photographing (a product, its label, an empty box
+  or a written list) in any language finds the correct catalogue product **and
+  the correct order unit**: "10 kg frytki" becomes 1 karton (4 × 2.5 kg). When
+  the normal search finds nothing, the AI is asked automatically. Each result
+  can be added, or updated when the order already has a different amount;
+  kebab meat without a cone size asks the manager to choose. Words that match
+  nothing can go to the supplier note.
+- **AI tab** (all branches): the same AI as a full-screen helper with big
+  Speak / Photo / Type buttons for dictating a whole order.
 
-Settings such as the cutoff hour, the cost target, the history window and the AI
-branches are in `src/config.js`.
+Settings such as the cutoff hour, the cost target and the history window are in
+`src/config.js`.
 
 ## Data rules it relies on
 
@@ -61,7 +62,12 @@ returns only real product ids and units. The OpenAI key is never in the app.
 
 1. Supabase dashboard → project → Edge Functions → Secrets.
 2. Add `OPENAI_API_KEY` with your OpenAI key.
-3. Optional: add `OPENAI_MODEL` to choose the model (default `gpt-4o-mini`).
+3. Optional: `OPENAI_MODEL` for matching and photos (default `gpt-4o-mini`) and
+   `OPENAI_TRANSCRIBE_MODEL` for voice (default `gpt-4o-mini-transcribe`, falls
+   back to `whisper-1`).
+
+Voice recordings (max 30 s) and photos (shrunk to 1024 px) are sent to the
+function for that one search and are not stored.
 
 Until the key is added, the app shows "AI search is not set up yet" and the
 normal search keeps working.

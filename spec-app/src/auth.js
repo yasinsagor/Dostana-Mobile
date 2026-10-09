@@ -35,7 +35,7 @@ export function AuthProvider({ children }) {
     const branches = await knownBranches();
     const branch = branches.find(b => b.pin === value);
     if (!branch) return { ok: false, error: 'This PIN does not match any branch.' };
-    // The PIN is kept only for the AI assistant, which re-checks it on the server.
+    // The PIN is kept for AI search, which re-checks it on the server.
     const next = { branch: branch.name, pin: value };
     setUser(next);
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(next));

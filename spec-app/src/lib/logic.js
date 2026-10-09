@@ -263,3 +263,20 @@ export function inCart(cart, p, it) {
   if (isSizedMeat(p)) return it?.unit ? num((cart.sizes[p.id] || {})[String(it.unit).toLowerCase()]) > 0 : lineQty(cart, p) > 0;
   return num(cart.qty[p.id]) > 0;
 }
+
+/* What the AI panel should offer for a suggestion: 'add' (not in the order),
+   'update' (in the order with another amount or unit) or 'done'. */
+export function aiAction(cart, p, it) {
+  if (!p) return 'add';
+  if (isSizedMeat(p)) {
+    if (!it?.unit) return lineQty(cart, p) > 0 ? 'done' : 'add';
+    const current = num((cart.sizes[p.id] || {})[String(it.unit).toLowerCase()]);
+    if (!current) return 'add';
+    return it.qty != null && current !== it.qty ? 'update' : 'done';
+  }
+  const current = num(cart.qty[p.id]);
+  if (!current) return 'add';
+  const unitNow = unitOptionFor(p, cart.unit[p.id]).unit;
+  if (it?.unit && it.unit !== unitNow) return 'update';
+  return it?.qty != null && current !== it.qty ? 'update' : 'done';
+}

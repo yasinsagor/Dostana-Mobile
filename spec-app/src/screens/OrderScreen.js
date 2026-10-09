@@ -3,10 +3,9 @@ import {
   ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../auth';
 import { useSpec } from '../store';
-import { aiMatch } from '../lib/api';
-import { AiResults } from '../components/ai';
+import { useAiSearch } from '../lib/useAiSearch';
+import { AiInputButtons, AiResults, RecordingBar } from '../components/ai';
 import { Banner, Button, Card, Header, ProductRow, StatusPill, T } from '../components/ui';
 import {
   canEdit, categoryOf, fmtDay, fmtK, fmtPln, groupProducts, isSizedMeat, lineCost, meatSizes,
@@ -51,8 +50,7 @@ function BuildView({ onReview }) {
   const [filter, setFilter] = useState(ALL);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState({});
-  const [ai, setAi] = useState({ status: 'idle' });
-  const { user } = useAuth();
+  const ai = useAiSearch('search');
   const index = useMemo(() => buildSearchIndex(products), [products]);
   const selected = selectedProducts(cart, products);
   const selectedIds = new Set(selected.map(p => p.id));
@@ -60,34 +58,20 @@ function BuildView({ onReview }) {
   const lastItems = lastOrder ? lastOrder.items : [];
   const rowProps = { cart, setQty: spec.setQty, setUnit: spec.setUnit, setSizes: spec.setSizes };
 
-  const searching = query.trim().length > 0;
-  const results = searching ? searchProducts(products, index, query, usage) : [];
-
-  async function askAi(text = query) {
-    const q = text.trim();
-    if (q.length < 2) return;
-    setAi({ status: 'loading', query: q });
-    try {
-      const result = await aiMatch({ branch: spec.branch, pin: user.pin, query: q, mode: 'search' });
-      setAi(cur => (cur.query === q ? { status: 'done', query: q, result } : cur));
-    } catch (e) {
-      setAi(cur => (cur.query === q ? { status: 'error', query: q, error: e.message } : cur));
-    }
-  }
-
-  // When the normal search finds nothing, ask the AI automatically (after a short pause in typing).
   const trimmed = query.trim();
+  const searching = trimmed.length > 0;
+  const results = searching ? searchProducts(products, index, query, usage) : [];
+  const aiForThisText = ai.state.source === 'text' && ai.state.query === trimmed;
+
+  // Typing something new clears an old typed AI search (voice and photo results stay until closed).
+  // When the normal search finds nothing, the AI is asked automatically after a short pause.
   useEffect(() => {
-    if (ai.query && ai.query !== trimmed) setAi({ status: 'idle' });
-    if (trimmed.length < 3 || results.length > 0 || ai.query === trimmed) return undefined;
-    const t = setTimeout(() => askAi(trimmed), 900);
+    if (ai.state.source === 'text' && ai.state.query !== trimmed) ai.clear();
+    if (trimmed.length < 3 || results.length > 0 || aiForThisText) return undefined;
+    const t = setTimeout(() => ai.searchText(trimmed), 900);
     return () => clearTimeout(t);
   }, [trimmed, results.length]);
 
-  function chooseSize(p) {
-    setAi({ status: 'idle' });
-    setQuery(p.name);
-  }
   const groups = useMemo(() => {
     if (searching) return [];
     const list = products.filter(p =>
@@ -95,11 +79,15 @@ function BuildView({ onReview }) {
     return groupProducts(list, usage);
   }, [products, filter, searching, usage, cart]);
 
-  function addToNote() {
-    const line = `+ ${query.trim()}`;
-    spec.setNote(spec.note ? `${spec.note}\n${line}` : line);
-    setQuery('');
-    Alert.alert('Added to the note', `“${line.slice(2)}” will be sent to the supplier as a note with your order.`);
+  function addToNote(words) {
+    const lines = words.map(w => `+ ${w}`).join('\n');
+    spec.setNote(spec.note ? `${spec.note}\n${lines}` : lines);
+    Alert.alert('Added to the note', 'This will be sent to the supplier as a note with your order.');
+  }
+
+  function chooseSize(p) {
+    ai.clear();
+    setQuery(p.name);
   }
 
   function confirmClear() {
@@ -109,24 +97,42 @@ function BuildView({ onReview }) {
     ]);
   }
 
+  const aiPanel = (
+    <AiResults
+      state={ai.state}
+      products={products}
+      cart={cart}
+      onAdd={it => spec.applyAiItems([it])}
+      onAddAll={items => spec.applyAiItems(items)}
+      onChooseSize={chooseSize}
+      onAddUnmatched={addToNote}
+      onClose={ai.clear}
+    />
+  );
+
   return (
     <SafeAreaView style={st.safe} edges={['top']}>
       <Header title={editing ? 'Edit today’s order' : 'New order'} subtitle="Step 1 of 2 · choose products" />
       <View style={st.toolbar}>
-        <View style={st.search}>
-          <Text style={st.searchIcon}>⌕</Text>
-          <TextInput
-            style={st.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search: frytki, majonez, gloves…"
-            placeholderTextColor={T.muted}
-            returnKeyType="search"
-            autoCorrect={false}
-          />
-          {searching ? <TouchableOpacity onPress={() => setQuery('')} hitSlop={10}><Text style={st.searchClear}>✕</Text></TouchableOpacity> : null}
+        <View style={st.searchRow}>
+          <View style={st.search}>
+            <Text style={st.searchIcon}>⌕</Text>
+            <TextInput
+              style={st.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search in any language…"
+              placeholderTextColor={T.muted}
+              returnKeyType="search"
+              onSubmitEditing={() => { if (trimmed.length >= 2 && !aiForThisText) ai.searchText(trimmed); }}
+              autoCorrect={false}
+            />
+            {searching ? <TouchableOpacity onPress={() => setQuery('')} hitSlop={10}><Text style={st.searchClear}>✕</Text></TouchableOpacity> : null}
+          </View>
+          <AiInputButtons voice={ai.voice} onPhoto={ai.choosePhoto} />
         </View>
-        {!searching && (
+        <RecordingBar voice={ai.voice} />
+        {!searching && !ai.voice.recording && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.chips} keyboardShouldPersistTaps="handled">
             {[ALL, SELECTED, ...cats].map(c => {
               const on = filter === c;
@@ -142,12 +148,12 @@ function BuildView({ onReview }) {
       </View>
 
       <ScrollView contentContainerStyle={st.listPad} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+        {aiPanel}
         {!searching && (
           <View style={st.banners}>
             {editing && <Banner tone="info" title="Editing today’s order" text="The supplier sees the change after you save it." action="Cancel" onAction={spec.cancelEdit} />}
             {!editing && origin?.kind === 'last' && <Banner tone="info" title={`Filled from your last order (${fmtDay(origin.date)})`} text="Change only what is different today." action="Clear" onAction={confirmClear} />}
             {!editing && origin?.kind === 'reorder' && <Banner tone="info" title={`Copied from ${fmtDay(origin.date)}`} text="Check today’s stock and adjust." action="Clear" onAction={confirmClear} />}
-            {!editing && origin?.kind === 'ai' && <Banner tone="info" title="Prepared by the AI assistant" text="Check every quantity before sending." action="Clear" onAction={confirmClear} />}
             {!editing && !totals.count && lastOrder && (
               <Banner tone="ok" title="Start faster" text={`Copy your last order (${fmtDay(lastOrder.date)}) and adjust it.`} action="Copy"
                 onAction={() => spec.loadItems(lastOrder.items, { kind: 'last', date: lastOrder.date })} />
@@ -157,14 +163,23 @@ function BuildView({ onReview }) {
 
         {searching ? (
           <>
-            <View style={st.group}>
-              {results.length === 0
-                ? <View style={st.noResult}><Text style={st.emptyTitle}>No product matches “{query.trim()}”</Text></View>
-                : results.map(p => <ProductRow key={p.id} product={p} prev={previousQty(p, lastItems)} {...rowProps} />)}
-            </View>
-            <TouchableOpacity style={st.cantFind} onPress={addToNote}>
-              <Text style={st.cantFindTitle}>Can’t find it?</Text>
-              <Text style={st.cantFindText}>Add “{query.trim()}” to the note for the supplier</Text>
+            {results.length > 0 && (
+              <View style={st.group}>
+                {results.map(p => <ProductRow key={p.id} product={p} prev={previousQty(p, lastItems)} {...rowProps} />)}
+              </View>
+            )}
+            {results.length === 0 && !aiForThisText && (
+              <View style={st.noResult}><Text style={st.emptyTitle}>No product name matches “{trimmed}”</Text><Text style={st.emptyText}>Asking the AI…</Text></View>
+            )}
+            {results.length > 0 && !aiForThisText && (
+              <TouchableOpacity style={st.askAi} onPress={() => ai.searchText(trimmed)}>
+                <Text style={st.askAiTitle}>✦ Not the right product? Ask AI</Text>
+                <Text style={st.cantFindText}>AI finds the right product and unit from any language, typos or amounts</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={st.cantFind} onPress={() => { addToNote([trimmed]); setQuery(''); }}>
+              <Text style={st.cantFindTitle}>Still can’t find it?</Text>
+              <Text style={st.cantFindText}>Add “{trimmed}” to the note for the supplier</Text>
             </TouchableOpacity>
           </>
         ) : groups.length === 0 ? (
@@ -345,7 +360,8 @@ const st = StyleSheet.create({
   emptyText: { fontSize: 14, color: T.inkSoft, marginTop: 6, textAlign: 'center' },
 
   toolbar: { backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.line, paddingTop: 10 },
-  search: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 14, marginBottom: 10, backgroundColor: T.bg, borderRadius: 12, paddingHorizontal: 12 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 10 },
+  search: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: T.bg, borderRadius: 12, paddingHorizontal: 12 },
   searchIcon: { fontSize: 20, color: T.muted, marginRight: 6 },
   searchInput: { flex: 1, paddingVertical: 11, fontSize: 16, color: T.ink },
   searchClear: { fontSize: 16, color: T.muted, padding: 4 },
