@@ -5,8 +5,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../auth';
 import { useSpec } from '../store';
-import { Button, Header, T } from '../components/ui';
-import { PORTAL_API } from '../config';
+import { Banner, Button, Header, T } from '../components/ui';
+import { AiResults } from '../components/ai';
+import { aiMatch } from '../lib/api';
+import { AI_BRANCHES, PORTAL_API } from '../config';
 
 const STARTERS = [
   'Prepare the recommended SPEC order for the next 3 days.',
@@ -14,9 +16,112 @@ const STARTERS = [
   'Make a smaller, cautious order for tomorrow only.',
 ];
 
+export default function AssistantScreen({ navigation }) {
+  const { user } = useAuth();
+  const salesTrial = AI_BRANCHES.includes(user.branch);
+  const [mode, setMode] = useState('type');
+  return (
+    <SafeAreaView style={st.safe} edges={['top']}>
+      <Header title="AI assistant" subtitle="Prepares a draft · you check and send" />
+      <View style={st.segment}>
+        {[['type', 'Type your order'], ['sales', 'Sales advice']].map(([key, label]) => (
+          <TouchableOpacity key={key} style={[st.segBtn, mode === key && st.segBtnOn]} onPress={() => setMode(key)}>
+            <Text style={[st.segText, mode === key && st.segTextOn]}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      {mode === 'type'
+        ? <TypeOrder navigation={navigation} />
+        : salesTrial
+          ? <SalesAdvice navigation={navigation} />
+          : <View style={st.trial}><Banner tone="info" title="Trial at Łopuszańska" text="Order suggestions from your GoPOS sales are being tested at Łopuszańska first. “Type your order” works for every branch." /></View>}
+    </SafeAreaView>
+  );
+}
+
+/* Manager types (or dictates with the keyboard microphone) the whole order in
+   their own words; the AI turns it into products and quantities. */
+function TypeOrder({ navigation }) {
+  const { user } = useAuth();
+  const spec = useSpec();
+  const [text, setText] = useState('');
+  const [state, setState] = useState({ status: 'idle' });
+
+  async function match() {
+    const q = text.trim();
+    if (!q) return;
+    setState({ status: 'loading', query: q.length > 40 ? `${q.slice(0, 40)}…` : q });
+    try {
+      const result = await aiMatch({ branch: spec.branch, pin: user.pin, query: q, mode: 'order' });
+      setState({ status: 'done', query: q, result });
+    } catch (e) {
+      setState({ status: 'error', query: q, error: e.message });
+    }
+  }
+
+  function guard() {
+    if (spec.todayOrder && !spec.editing) {
+      Alert.alert('Today’s order is already sent', 'Open the Order tab and tap Edit order first.');
+      return false;
+    }
+    return true;
+  }
+
+  function addAll(items) {
+    if (!guard()) return;
+    spec.applyAiItems(items);
+    navigation.navigate('Order');
+  }
+
+  function addOne(item) {
+    if (!guard()) return;
+    spec.applyAiItems([item]);
+  }
+
+  function addUnmatched(list) {
+    const lines = list.map(x => `+ ${x}`).join('\n');
+    spec.setNote(spec.note ? `${spec.note}\n${lines}` : lines);
+    Alert.alert('Added to the note', 'These will be sent to the supplier as a note with your order.');
+  }
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: T.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
+        <View style={st.typeBox}>
+          <Text style={st.typeLabel}>Write what you need, in any language</Text>
+          <TextInput
+            style={st.typeInput}
+            value={text}
+            onChangeText={setText}
+            multiline
+            maxLength={600}
+            placeholder={'e.g. 2 baranina 15, 2 kurczak 20, 6 pita 110, 3 majonez, gloves XL, fries 4'}
+            placeholderTextColor={T.muted}
+          />
+          <Text style={st.tip}>Tip: tap the microphone on the keyboard to speak instead of typing.</Text>
+          <Button title={state.status === 'loading' ? 'Matching…' : 'Find products'} onPress={match} disabled={!text.trim() || state.status === 'loading'} style={{ marginTop: 10 }} />
+        </View>
+        <AiResults
+          state={state}
+          products={spec.products}
+          cart={spec.cart}
+          onAdd={addOne}
+          onAddAll={addAll}
+          onChooseSize={() => navigation.navigate('Order')}
+          onRetry={match}
+          onAddUnmatched={addUnmatched}
+        />
+        {state.status === 'done' && state.result.items.length > 0 && (
+          <Button title="Go to my order ›" kind="ghost" onPress={() => navigation.navigate('Order')} style={{ marginHorizontal: 14, marginTop: 12 }} />
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
 /* Uses the existing Dostana portal endpoint (GoPOS sales + SPEC catalogue).
    The AI only prepares a draft; the manager reviews and sends it. */
-export default function AssistantScreen({ navigation }) {
+function SalesAdvice({ navigation }) {
   const { user } = useAuth();
   const spec = useSpec();
   const [input, setInput] = useState('');
@@ -66,9 +171,7 @@ export default function AssistantScreen({ navigation }) {
   }
 
   return (
-    <SafeAreaView style={st.safe} edges={['top']}>
-      <Header title="AI assistant" subtitle="Trial · prepares a draft only" />
-      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: T.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: T.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
           {messages.map((m, i) => (
             <View key={i} style={[st.msg, m.role === 'user' ? st.userMsg : st.aiMsg]}>
@@ -110,13 +213,22 @@ export default function AssistantScreen({ navigation }) {
             <Text style={st.sendText}>Send</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
 const st = StyleSheet.create({
   safe: { flex: 1, backgroundColor: T.navy },
+  segment: { flexDirection: 'row', backgroundColor: T.card, padding: 6, gap: 6, borderBottomWidth: 1, borderBottomColor: T.line },
+  segBtn: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10 },
+  segBtnOn: { backgroundColor: T.navy },
+  segText: { fontWeight: '800', color: T.inkSoft },
+  segTextOn: { color: '#fff' },
+  trial: { flex: 1, padding: 14, backgroundColor: T.bg },
+  typeBox: { margin: 14, marginBottom: 0, backgroundColor: T.card, borderRadius: 14, borderWidth: 1, borderColor: T.line, padding: 14 },
+  typeLabel: { fontSize: 15, fontWeight: '900', color: T.ink, marginBottom: 8 },
+  typeInput: { minHeight: 110, maxHeight: 220, borderWidth: 1, borderColor: T.line, borderRadius: 12, padding: 12, fontSize: 16, color: T.ink, textAlignVertical: 'top', backgroundColor: '#FAFAFA' },
+  tip: { fontSize: 12, color: T.muted, marginTop: 8 },
   content: { padding: 14, gap: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   msg: { maxWidth: '88%', borderRadius: 16, padding: 12 },

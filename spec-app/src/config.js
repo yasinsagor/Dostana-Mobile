@@ -7,7 +7,8 @@ export const PORTAL_API = process.env.EXPO_PUBLIC_PORTAL_API_URL || 'https://dos
 export const ORDER_CUTOFF_HOUR = 18;   // order before 18:00 for next-day delivery
 export const SPEC_TARGET_PCT = 15;     // SPEC cost above this % of revenue is flagged
 export const HISTORY_DAYS = 60;        // history and "usual products" window
-export const AI_BRANCHES = ['Lopuszanska']; // AI assistant trial
+export const AI_BRANCHES = ['Lopuszanska']; // sales-based AI suggestions (portal trial)
+export const AI_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spec-ai-search`; // AI product matching, all branches
 
 // Used only when the branch list cannot be loaded and nothing is cached.
 export const FALLBACK_BRANCHES = [

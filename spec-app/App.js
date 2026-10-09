@@ -8,7 +8,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { AuthProvider, useAuth } from './src/auth';
 import { SpecProvider, useSpec } from './src/store';
 import { T } from './src/components/ui';
-import { AI_BRANCHES } from './src/config';
 import LoginScreen from './src/screens/LoginScreen';
 import TodayScreen from './src/screens/TodayScreen';
 import OrderScreen from './src/screens/OrderScreen';
@@ -34,7 +33,6 @@ class ErrorBoundary extends React.Component {
 }
 
 function Tabs() {
-  const { user } = useAuth();
   const spec = useSpec();
   const orderBadge = !spec.todayOrder && spec.totals.count ? spec.totals.count : undefined;
   return (
@@ -51,7 +49,7 @@ function Tabs() {
       <Tab.Screen name="Today" component={TodayScreen} />
       <Tab.Screen name="Order" component={OrderScreen} options={{ tabBarBadge: orderBadge, tabBarBadgeStyle: { backgroundColor: T.brand } }} />
       <Tab.Screen name="History" component={HistoryScreen} />
-      {AI_BRANCHES.includes(user.branch) && <Tab.Screen name="AI" component={AssistantScreen} />}
+      <Tab.Screen name="AI" component={AssistantScreen} />
     </Tab.Navigator>
   );
 }

@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { daysAgoStr } from './logic';
-import { HISTORY_DAYS } from '../config';
+import { AI_SEARCH_URL, HISTORY_DAYS, SUPABASE_KEY } from '../config';
 
 const CACHE = {
   branches: 'spec_app_branches_v1',
@@ -135,4 +135,28 @@ export async function flushQueue() {
   }
   await writeJson(CACHE.queue, left);
   return { sent };
+}
+
+/* AI product matching (Supabase function spec-ai-search, OpenAI on the server).
+   mode "search": best products for a search text; mode "order": a whole typed order. */
+export async function aiMatch({ branch, pin, query, mode = 'search' }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    const res = await fetch(AI_SEARCH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ branch, pin, query, mode }),
+      signal: controller.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `AI request failed (${res.status})`);
+    return { items: data.items || [], unmatched: data.unmatched || [], message: data.message || '' };
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('The AI took too long. Try again.');
+    if (isNetworkError(e)) throw new Error('No internet. AI search needs a connection.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }

@@ -3,7 +3,10 @@ import {
   ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../auth';
 import { useSpec } from '../store';
+import { aiMatch } from '../lib/api';
+import { AiResults } from '../components/ai';
 import { Banner, Button, Card, Header, ProductRow, StatusPill, T } from '../components/ui';
 import {
   canEdit, categoryOf, fmtDay, fmtK, fmtPln, groupProducts, isSizedMeat, lineCost, meatSizes,
@@ -48,6 +51,8 @@ function BuildView({ onReview }) {
   const [filter, setFilter] = useState(ALL);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState({});
+  const [ai, setAi] = useState({ status: 'idle' });
+  const { user } = useAuth();
   const index = useMemo(() => buildSearchIndex(products), [products]);
   const selected = selectedProducts(cart, products);
   const selectedIds = new Set(selected.map(p => p.id));
@@ -57,6 +62,32 @@ function BuildView({ onReview }) {
 
   const searching = query.trim().length > 0;
   const results = searching ? searchProducts(products, index, query, usage) : [];
+
+  async function askAi(text = query) {
+    const q = text.trim();
+    if (q.length < 2) return;
+    setAi({ status: 'loading', query: q });
+    try {
+      const result = await aiMatch({ branch: spec.branch, pin: user.pin, query: q, mode: 'search' });
+      setAi(cur => (cur.query === q ? { status: 'done', query: q, result } : cur));
+    } catch (e) {
+      setAi(cur => (cur.query === q ? { status: 'error', query: q, error: e.message } : cur));
+    }
+  }
+
+  // When the normal search finds nothing, ask the AI automatically (after a short pause in typing).
+  const trimmed = query.trim();
+  useEffect(() => {
+    if (ai.query && ai.query !== trimmed) setAi({ status: 'idle' });
+    if (trimmed.length < 3 || results.length > 0 || ai.query === trimmed) return undefined;
+    const t = setTimeout(() => askAi(trimmed), 900);
+    return () => clearTimeout(t);
+  }, [trimmed, results.length]);
+
+  function chooseSize(p) {
+    setAi({ status: 'idle' });
+    setQuery(p.name);
+  }
   const groups = useMemo(() => {
     if (searching) return [];
     const list = products.filter(p =>
@@ -333,6 +364,8 @@ const st = StyleSheet.create({
   more: { borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingVertical: 12, alignItems: 'center' },
   moreText: { color: T.brand, fontWeight: '800', fontSize: 14 },
   noResult: { padding: 24, alignItems: 'center' },
+  askAi: { marginHorizontal: 14, marginTop: 12, borderRadius: 14, borderWidth: 1.5, borderColor: '#C7D2FE', backgroundColor: '#F5F7FF', padding: 14, alignItems: 'center' },
+  askAiTitle: { color: '#3730A3', fontWeight: '900', fontSize: 15 },
   cantFind: { marginHorizontal: 14, marginTop: 12, borderRadius: 14, borderWidth: 1.5, borderStyle: 'dashed', borderColor: T.brand, padding: 14, alignItems: 'center' },
   cantFindTitle: { color: T.brandDark, fontWeight: '900', fontSize: 15 },
   cantFindText: { color: T.inkSoft, fontSize: 13, marginTop: 2, textAlign: 'center' },

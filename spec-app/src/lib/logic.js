@@ -236,3 +236,30 @@ export function statusOf(order) {
 export function canEdit(order) {
   return !!order && (statusOf(order) === 'pending' || statusOf(order) === 'queued');
 }
+
+/* ─── AI suggestions → cart ───────────────────────────────────
+   AI items: { product_id, qty|null, unit|null }. A given quantity replaces
+   the current one; without a quantity the product is added once (or kept
+   as it is when already in the order). Kebab meat needs a cone size, so a
+   meat suggestion without a size is left for the manager to choose. */
+export function aiNeedsSize(p, it) { return isSizedMeat(p) && !it?.unit; }
+
+export function addAiItem(cart, products, it) {
+  const p = findProduct(products, { id: it?.product_id || it?.id, name: it?.name });
+  if (!p || aiNeedsSize(p, it)) return cart;
+  if (isSizedMeat(p)) {
+    const size = String(it.unit).toLowerCase();
+    const current = cart.sizes[p.id] || {};
+    const qty = it.qty ?? Math.max(1, num(current[size]));
+    return { ...cart, sizes: { ...cart.sizes, [p.id]: { ...current, [size]: qty } } };
+  }
+  const qty = it.qty ?? Math.max(1, num(cart.qty[p.id]));
+  const unit = it.unit && unitOptions(p).some(o => o.unit === it.unit) ? it.unit : cart.unit[p.id];
+  return { ...cart, qty: { ...cart.qty, [p.id]: qty }, unit: unit ? { ...cart.unit, [p.id]: unit } : cart.unit };
+}
+
+export function inCart(cart, p, it) {
+  if (!p) return false;
+  if (isSizedMeat(p)) return it?.unit ? num((cart.sizes[p.id] || {})[String(it.unit).toLowerCase()]) > 0 : lineQty(cart, p) > 0;
+  return num(cart.qty[p.id]) > 0;
+}

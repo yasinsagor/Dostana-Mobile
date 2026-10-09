@@ -27,8 +27,15 @@ the supplier portal see every order without any change.
 - **Offline**: products and orders are cached on the phone. An order sent
   without internet is queued and sent automatically when the app is next open
   online.
-- **AI assistant**: the existing Łopuszańska trial (`AI_BRANCHES` in
-  `src/config.js`).
+- **AI search**, all branches: when the normal search finds nothing, the AI
+  is asked automatically; otherwise "Ask AI" is one tap away. It understands any
+  language, typos and quantities ("2 kurczak 20, 5 pita 85") and only returns
+  products from the catalogue. Results can be added one by one or all at once.
+- **AI tab**, all branches: "Type your order" turns a whole order written or
+  dictated (keyboard microphone) in the manager's own words into products and
+  quantities. Anything not in the catalogue can go to the supplier note.
+  "Sales advice" is the existing GoPOS-based assistant, still a Łopuszańska
+  trial (`AI_BRANCHES` in `src/config.js`).
 
 Settings such as the cutoff hour, the cost target, the history window and the AI
 branches are in `src/config.js`.
@@ -44,6 +51,22 @@ branches are in `src/config.js`.
   `spec_orders.total_brutto`.
 - Only products with `active = true` are shown. Item fields stay compatible with
   the management app: `id, name, qty, unit, cat, price, unit_multiplier, totalKg`.
+
+## AI search setup (one time)
+
+AI matching runs in the Supabase Edge Function `spec-ai-search`
+(source: `supabase/functions/spec-ai-search/index.ts`). It checks the branch PIN,
+loads the active catalogue and the branch's recent orders, asks OpenAI, and
+returns only real product ids and units. The OpenAI key is never in the app.
+
+1. Supabase dashboard → project → Edge Functions → Secrets.
+2. Add `OPENAI_API_KEY` with your OpenAI key.
+3. Optional: add `OPENAI_MODEL` to choose the model (default `gpt-4o-mini`).
+
+Until the key is added, the app shows "AI search is not set up yet" and the
+normal search keeps working.
+
+To redeploy after editing the function: `npx supabase functions deploy spec-ai-search --no-verify-jwt`.
 
 ## First build (one time)
 

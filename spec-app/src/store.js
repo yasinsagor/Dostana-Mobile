@@ -6,7 +6,7 @@ import {
   loadMonthRevenue, loadOrders, loadProducts, queuedOrders, sendOrder,
 } from './lib/api';
 import {
-  EMPTY_CART, cartFromItems, cartTotals, itemsFromCart, orderCost,
+  EMPTY_CART, addAiItem, cartFromItems, cartTotals, itemsFromCart, orderCost,
   todayStr, usageByProduct,
 } from './lib/logic';
 
@@ -127,6 +127,11 @@ export function SpecProvider({ branch, children }) {
     if (review) setReviewNonce(n => n + 1);
   }
 
+  /* Adds AI suggestions to the current order (does not clear anything). */
+  function applyAiItems(items) {
+    setCart(c => items.reduce((acc, it) => addAiItem(acc, products, it), c));
+  }
+
   function startEdit() {
     if (!todayOrder) return;
     setCart(cartFromItems(products, todayOrder.items));
@@ -165,7 +170,7 @@ export function SpecProvider({ branch, children }) {
     branch, today, products, orders, todayOrder, lastOrder, usage, revenue, monthSpend,
     loading, offline, lastSync, queued, failed, refresh, clearFailed,
     cart, note, setNote, origin, editing, totals, reviewNonce,
-    setQty, setUnit, setSizes, clearCart, loadItems, startEdit, cancelEdit, send,
+    setQty, setUnit, setSizes, clearCart, loadItems, applyAiItems, startEdit, cancelEdit, send,
   };
   return <SpecContext.Provider value={value}>{children}</SpecContext.Provider>;
 }
