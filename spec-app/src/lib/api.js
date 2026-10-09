@@ -49,6 +49,38 @@ export async function loadOrders(branch) {
 }
 export const cachedOrders = branch => readJson(CACHE.orders(branch), []);
 
+/* ─── supplier ─────────────────────────────────────────────── */
+export async function loadDayOrders(date) {
+  const { data, error } = await supabase.from('spec_orders').select('*').eq('date', date).order('branch');
+  if (error) throw error;
+  return data || [];
+}
+
+export async function loadBranchNames() {
+  try {
+    const list = await loadBranches();
+    if (list.length) return list.map(b => b.name);
+  } catch {}
+  return (await cachedBranches()).map(b => b.name);
+}
+
+export async function setOrderStatus(order, status) {
+  const values = { status };
+  if (status === 'delivered') values.completed_at = new Date().toISOString();
+  const { data, error } = await supabase.from('spec_orders').update(values)
+    .eq('branch', order.branch).eq('date', order.date).select().single();
+  if (error) throw error;
+  return data;
+}
+
+/* Supplier → branch message. Kept apart from supplier_note, which is the branch's own note. */
+export async function setSupplierMessage(order, text) {
+  const { data, error } = await supabase.from('spec_orders').update({ manager_notification: text.trim() || null })
+    .eq('branch', order.branch).eq('date', order.date).select().single();
+  if (error) throw error;
+  return data;
+}
+
 export async function loadMonthRevenue(branch) {
   const now = new Date();
   const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;

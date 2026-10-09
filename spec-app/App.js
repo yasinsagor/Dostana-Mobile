@@ -13,6 +13,7 @@ import TodayScreen from './src/screens/TodayScreen';
 import OrderScreen from './src/screens/OrderScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import AssistantScreen from './src/screens/AssistantScreen';
+import SupplierScreen from './src/screens/SupplierScreen';
 
 const Tab = createBottomTabNavigator();
 const ICONS = { Today: '◉', Order: '＋', History: '☰', AI: '✦' };
@@ -39,7 +40,7 @@ function Tabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: T.brand,
+        tabBarActiveTintColor: T.orangeDark,
         tabBarInactiveTintColor: T.muted,
         tabBarStyle: { height: 70, paddingBottom: 12, paddingTop: 6 },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '800' },
@@ -47,7 +48,7 @@ function Tabs() {
       })}
     >
       <Tab.Screen name="Today" component={TodayScreen} />
-      <Tab.Screen name="Order" component={OrderScreen} options={{ tabBarBadge: orderBadge, tabBarBadgeStyle: { backgroundColor: T.brand } }} />
+      <Tab.Screen name="Order" component={OrderScreen} options={{ tabBarBadge: orderBadge, tabBarBadgeStyle: { backgroundColor: T.orange } }} />
       <Tab.Screen name="History" component={HistoryScreen} />
       <Tab.Screen name="AI" component={AssistantScreen} />
     </Tab.Navigator>
@@ -60,6 +61,7 @@ function Root() {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.navy }}><ActivityIndicator color="#fff" size="large" /></View>;
   }
   if (!user) return <LoginScreen />;
+  if (user.role === 'supplier') return <SupplierScreen />;
   return (
     <SpecProvider key={user.branch} branch={user.branch}>
       <NavigationContainer>

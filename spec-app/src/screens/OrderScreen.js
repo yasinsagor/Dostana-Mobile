@@ -8,10 +8,11 @@ import { useAiSearch } from '../lib/useAiSearch';
 import { AiInputButtons, AiResults, RecordingBar } from '../components/ai';
 import { Banner, Button, Card, Header, ProductRow, StatusPill, T } from '../components/ui';
 import {
-  canEdit, categoryOf, fmtDay, fmtK, fmtPln, groupProducts, isSizedMeat, lineCost, meatSizes,
+  canEdit, categoryOf, itemQtyLabel, fmtDay, fmtK, fmtPln, groupProducts, isSizedMeat, lineCost, meatSizes,
   normalizeItems, num, orderCost, previousQty, reviewWarnings, selectedProducts, statusOf, unitOptionFor,
 } from '../lib/logic';
 import { buildSearchIndex, searchProducts } from '../lib/search';
+import { askShare, orderDocument } from '../lib/documents';
 
 const ALL = 'All';
 const SELECTED = '✓ Selected';
@@ -310,7 +311,7 @@ function SentView({ onEdit }) {
           {items.map((it, i) => (
             <View key={`${it.name}-${it.unit}-${i}`} style={st.line}>
               <Text style={st.lineName}>{it.name}</Text>
-              <Text style={st.lineQty}>{it.qty} × {it.unit}{it.totalKg ? ` (${it.totalKg} kg)` : ''}</Text>
+              <Text style={st.lineQty}>{itemQtyLabel(it)}</Text>
             </View>
           ))}
           {todayOrder.supplier_note ? <Text style={st.noteShown}>Note: {todayOrder.supplier_note}</Text> : null}

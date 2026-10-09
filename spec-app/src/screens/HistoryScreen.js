@@ -3,8 +3,9 @@ import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSpec } from '../store';
 import { Banner, Button, Card, Header, StatusPill, T } from '../components/ui';
-import { fmtDay, fmtPln, normalizeItems, orderCost, statusOf } from '../lib/logic';
+import { fmtDay, fmtPln, itemQtyLabel, normalizeItems, orderCost, statusOf } from '../lib/logic';
 import { HISTORY_DAYS } from '../config';
+import { askShare, orderDocument } from '../lib/documents';
 
 export default function HistoryScreen({ navigation }) {
   const spec = useSpec();
@@ -48,11 +49,14 @@ export default function HistoryScreen({ navigation }) {
                   {items.map((it, i) => (
                     <View key={`${it.name}-${it.unit}-${i}`} style={st.line}>
                       <Text style={st.lineName}>{it.name}</Text>
-                      <Text style={st.lineQty}>{it.qty} × {it.unit}{it.totalKg ? ` (${it.totalKg} kg)` : ''}</Text>
+                      <Text style={st.lineQty}>{itemQtyLabel(it)}</Text>
                     </View>
                   ))}
                   {o.supplier_note ? <Text style={st.note}>Note: {o.supplier_note}</Text> : null}
-                  {o.date !== today && <Button title="Order the same again" kind="ghost" onPress={() => reorder(o)} style={{ marginTop: 10 }} />}
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <Button title="⇪ Share" kind="ghost" onPress={() => askShare(`Share order ${fmtDay(o.date)}`, () => orderDocument(o, products))} style={{ flex: 1 }} />
+                    {o.date !== today && <Button title="Order again" kind="ghost" onPress={() => reorder(o)} style={{ flex: 1 }} />}
+                  </View>
                 </View>
               )}
             </Card>

@@ -8,6 +8,9 @@ export const SPEC_TARGET_PCT = 15;     // SPEC cost above this % of revenue is f
 export const HISTORY_DAYS = 60;        // history and "usual products" window
 export const AI_SEARCH_URL = `${SUPABASE_URL}/functions/v1/spec-ai-search`; // AI search (text, voice, photo), all branches
 
+// SPEC supplier login (same PIN as the supplier view in the Dostana management app).
+export const SUPPLIER_PIN = '7777';
+
 // Used only when the branch list cannot be loaded and nothing is cached.
 export const FALLBACK_BRANCHES = [
   { name: 'Krakowskie Przedmiescie', pin: '1001' },

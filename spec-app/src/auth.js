@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { cachedBranches, loadBranches } from './lib/api';
-import { FALLBACK_BRANCHES } from './config';
+import { FALLBACK_BRANCHES, SUPPLIER_PIN } from './config';
 
 const USER_KEY = 'spec_app_user_v1';
 const AuthContext = createContext(null);
@@ -31,12 +31,18 @@ export function AuthProvider({ children }) {
 
   async function login(pin) {
     const value = String(pin || '').trim();
-    if (!value) return { ok: false, error: 'Enter your branch PIN.' };
+    if (!value) return { ok: false, error: 'Enter your PIN.' };
+    if (value === SUPPLIER_PIN) {
+      const supplier = { role: 'supplier' };
+      setUser(supplier);
+      await AsyncStorage.setItem(USER_KEY, JSON.stringify(supplier));
+      return { ok: true };
+    }
     const branches = await knownBranches();
     const branch = branches.find(b => b.pin === value);
-    if (!branch) return { ok: false, error: 'This PIN does not match any branch.' };
+    if (!branch) return { ok: false, error: 'Wrong PIN. Try again.' };
     // The PIN is kept for AI search, which re-checks it on the server.
-    const next = { branch: branch.name, pin: value };
+    const next = { role: 'manager', branch: branch.name, pin: value };
     setUser(next);
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(next));
     return { ok: true };

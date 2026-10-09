@@ -280,3 +280,10 @@ export function aiAction(cart, p, it) {
   if (it?.unit && it.unit !== unitNow) return 'update';
   return it?.qty != null && current !== it.qty ? 'update' : 'done';
 }
+
+/* "2 × 20kg (40 kg)" for kebab cones, "6 opakowanie" for everything else. */
+export function itemQtyLabel(it) {
+  const unit = String(it?.unit || '');
+  if (/kg$/i.test(unit)) return `${it.qty} × ${unit}${num(it.totalKg) ? ` (${num(it.totalKg)} kg)` : ''}`;
+  return `${it?.qty} ${unit}`.trim();
+}

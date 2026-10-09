@@ -35,8 +35,26 @@ the supplier portal see every order without any change.
   can be added, or updated when the order already has a different amount;
   kebab meat without a cone size asks the manager to choose. Words that match
   nothing can go to the supplier note.
+- **Share order**: on today's sent order and in History, share as PDF (Dostana
+  logo, grouped by category, tick boxes, signature lines) or as text for
+  WhatsApp / SMS. Documents are in Polish for the SPEC warehouse.
 - **AI tab** (all branches): the same AI as a full-screen helper with big
   Speak / Photo / Type buttons for dictating a whole order.
+
+## Supplier (PIN 7777, same as in the management app)
+
+- **Branch orders** for any day (‹ ›), with counts of orders, orders to
+  confirm and branches that have not ordered yet.
+- **By branch**: each order grouped by category with the branch's note, a
+  message back to the branch (saved in `manager_notification`, shown to the
+  manager as "Message from supplier", so the branch note is never
+  overwritten), and Confirm / Delivered (`completed_at` is set on delivery).
+  "Confirm all" confirms every waiting order.
+- **Picking totals**: the day's quantities per product with the branches that
+  ordered them.
+- **Share**: one branch, or the whole day (picking totals plus every branch on
+  its own page) as PDF or text.
+- Refreshes every minute and when the app is reopened.
 
 Settings such as the cutoff hour, the cost target and the history window are in
 `src/config.js`.

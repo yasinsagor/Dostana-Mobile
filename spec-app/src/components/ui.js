@@ -5,8 +5,10 @@ import {
 } from '../lib/logic';
 
 export const T = {
+  // Dostana Kebab brand: charcoal + turban orange (from the logo). Green stays for actions.
+  orange: '#F39228', orangeDark: '#B85F00', orangeSoft: '#FFF4E6',
   brand: '#2E7D32', brandDark: '#1B5E20', brandSoft: '#E8F5E9',
-  navy: '#0F172A', ink: '#111827', inkSoft: '#4B5563', muted: '#9CA3AF',
+  navy: '#1A1A1A', ink: '#111827', inkSoft: '#4B5563', muted: '#9CA3AF',
   line: '#E5E7EB', bg: '#F3F4F6', card: '#FFFFFF',
   danger: '#B91C1C', dangerSoft: '#FEE2E2', warn: '#92400E', warnSoft: '#FEF3C7',
   info: '#1D4ED8', infoSoft: '#DBEAFE', meat: '#C2410C', meatSoft: '#FFF7ED',
@@ -22,6 +24,7 @@ const TONES = {
 export function Header({ title, subtitle, right }) {
   return (
     <View style={s.header}>
+      <Image source={require('../../assets/logo-mark.png')} style={s.headerMark} resizeMode="contain" />
       <View style={{ flex: 1 }}>
         <Text style={s.headerTitle}>{title}</Text>
         {subtitle ? <Text style={s.headerSub}>{subtitle}</Text> : null}
@@ -62,13 +65,13 @@ export function Button({ title, onPress, kind = 'primary', disabled, style }) {
   );
 }
 
-export function StatusPill({ status }) {
+export function StatusPill({ status, label }) {
   const cfg = STATUS[status] || STATUS.pending;
   const c = TONES[cfg.tone];
   return (
     <View style={[s.pill, { backgroundColor: c.bg }]}>
       <View style={[s.pillDot, { backgroundColor: c.fg }]} />
-      <Text style={[s.pillText, { color: c.fg }]}>{cfg.label}</Text>
+      <Text style={[s.pillText, { color: c.fg }]}>{label || cfg.label}</Text>
     </View>
   );
 }
@@ -193,7 +196,8 @@ export const ProductRow = React.memo(function ProductRow({ product, cart, prev, 
 });
 
 export const s = StyleSheet.create({
-  header: { backgroundColor: T.navy, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  header: { backgroundColor: T.navy, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 3, borderBottomColor: T.orange },
+  headerMark: { width: 34, height: 40 },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '900' },
   headerSub: { color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 2 },
 
