@@ -50,8 +50,7 @@
         "expo-image-picker",
         {
           "cameraPermission": "Take a photo of a product, label or list so the AI can find it in the SPEC catalogue.",
-          "photosPermission": "Choose a photo of a product, label or list so the AI can find it in the SPEC catalogue.",
-          "microphonePermission": false
+          "photosPermission": "Choose a photo of a product, label or list so the AI can find it in the SPEC catalogue."
         }
       ],
       [
