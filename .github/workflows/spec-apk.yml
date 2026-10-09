@@ -78,3 +78,45 @@ jobs:
               --title "Dostana SPEC app (latest)" --notes "$NOTES"
           gh release upload spec-app-latest dostana-spec.apk --clobber
           gh release edit spec-app-latest --notes "$NOTES"
+
+  # Opens the new APK on an Android 14 emulator. Fails if the app is not
+  # running after 25 seconds; logcat and a screenshot are saved either way.
+  smoke:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dostana-spec-apk
+
+      - name: Open the app on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r dostana-spec-*.apk
+            adb logcat -c
+            adb shell monkey -p com.dostana.spec -c android.intent.category.LAUNCHER 1
+            sleep 25
+            adb exec-out screencap -p > screen.png
+            adb logcat -d > logcat.txt
+            grep -nE "FATAL EXCEPTION|ReactNativeJS" -A 12 logcat.txt | head -80 || true
+            adb shell pidof com.dostana.spec
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spec-smoke
+          path: |
+            logcat.txt
+            screen.png
