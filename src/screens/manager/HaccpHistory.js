@@ -1,11 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Text as NativeText, TextInput, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { CalendarModal } from './SubmitScreen';
 import { haccpCutoff } from '../../lib/haccpRetention';
 
 const API = process.env.EXPO_PUBLIC_PORTAL_API_URL || 'https://dostana-web-claude.vercel.app';
 const localDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+// Android can default unstyled text to white when the phone uses dark mode.
+// This screen has light cards, so always set its foreground explicitly.
+function Text({ style, ...props }) {
+  return <NativeText {...props} style={[{ color: '#17251B' }, style]} />;
+}
 
 export default function HaccpHistory() {
   const { user } = useAuth();
@@ -53,7 +59,7 @@ export default function HaccpHistory() {
     } catch (e) { setError(e.message || 'Correction failed. Nothing was queued offline.'); }
     finally { setBusy(false); }
   }
-  const field = (label, value, onChange, options = {}) => <View style={{ gap: 5 }}><Text>{label}</Text><TextInput value={String(value ?? '')} onChangeText={onChange} editable={!busy} style={{ borderWidth: 1, borderColor: '#B8CDBE', borderRadius: 8, padding: 10, color: '#17251B' }} {...options} /></View>;
+  const field = (label, value, onChange, options = {}) => <View style={{ gap: 5 }}><Text>{label}</Text><TextInput value={String(value ?? '')} onChangeText={onChange} editable={!busy} placeholderTextColor="#647067" selectionColor="#15803D" style={{ borderWidth: 1, borderColor: '#B8CDBE', borderRadius: 8, padding: 10, color: '#17251B', backgroundColor: '#fff' }} {...options} /></View>;
   const button = (title, fn) => <TouchableOpacity disabled={busy} onPress={fn} style={{ backgroundColor: '#15803D', borderRadius: 8, padding: 12 }}><Text style={{ color: '#fff', fontWeight: '700', textAlign: 'center' }}>{title}</Text></TouchableOpacity>;
   return <View style={{ gap: 12 }}>
     <TouchableOpacity disabled={busy} onPress={() => setCalendarOpen(true)} style={{ backgroundColor: '#fff', padding: 14, borderRadius: 12 }}>
