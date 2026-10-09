@@ -11,6 +11,9 @@ on:
       - 'spec-app/**'
       - '.github/workflows/spec-apk.yml'
 
+permissions:
+  contents: write
+
 concurrency:
   group: spec-apk-${{ github.ref }}
   cancel-in-progress: true
@@ -54,9 +57,24 @@ jobs:
         run: |
           SHORT=$(git rev-parse --short HEAD)
           cp android/app/build/outputs/apk/release/app-release.apk "../dostana-spec-${SHORT}.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk ../dostana-spec.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: dostana-spec-apk
           path: dostana-spec-*.apk
           retention-days: 30
+
+      # Direct phone download, no login or zip:
+      # https://github.com/<owner>/<repo>/releases/download/spec-app-latest/dostana-spec.apk
+      - name: Publish to the "spec-app-latest" release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Latest Dostana SPEC ordering app, built from ${GITHUB_SHA::7} on $(date -u +'%Y-%m-%d %H:%M') UTC. On the phone: tap dostana-spec.apk, open it, allow installing from this source."
+          gh release view spec-app-latest >/dev/null 2>&1 || \
+            gh release create spec-app-latest --prerelease --target "$GITHUB_SHA" \
+              --title "Dostana SPEC app (latest)" --notes "$NOTES"
+          gh release upload spec-app-latest dostana-spec.apk --clobber
+          gh release edit spec-app-latest --notes "$NOTES"
